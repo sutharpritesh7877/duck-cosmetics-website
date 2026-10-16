@@ -1,0 +1,12 @@
+# Standard Git Line Endings & Binary file handling
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary
+*.gif binary
+*.svg text
+*.woff binary
+*.woff2 binary
+*.ttf binary

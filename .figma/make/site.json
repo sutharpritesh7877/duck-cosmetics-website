@@ -1,0 +1,10 @@
+{
+  "description": "This professional website showcases Duck Cosmetics, offering users an engaging platform to explore and purchase high-quality cosmetic products.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
