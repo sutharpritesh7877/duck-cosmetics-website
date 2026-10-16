@@ -24,11 +24,26 @@ import { WebsiteSettingsModule } from "./modules/WebsiteSettingsModule";
 import { SecurityAuditModule } from "./modules/SecurityAuditModule";
 import { SuppliersModule } from "./modules/SuppliersModule";
 
-export function AdminLayout({ onBackToStore }: { onBackToStore: () => void }) {
+export function AdminLayout({
+  onBackToStore,
+  onSignOut,
+}: {
+  onBackToStore: () => void;
+  onSignOut?: () => void;
+}) {
   const [activeModule, setActiveModule] = useState<string>("overview");
   const [currentStaff, setCurrentStaff] = useState(authService.getCurrentUser());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [, setDbVersion] = useState(0);
+
+  const handleSignOut = () => {
+    authService.logoutStaff();
+    if (onSignOut) {
+      onSignOut();
+    } else {
+      onBackToStore();
+    }
+  };
 
   // Subscribe to DB changes for reactive badges
   useEffect(() => {
@@ -204,6 +219,12 @@ export function AdminLayout({ onBackToStore }: { onBackToStore: () => void }) {
             <span>←</span> Live Storefront
           </button>
           <button
+            onClick={handleSignOut}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-500/20 py-2.5 text-xs font-bold tracking-wider text-rose-300 uppercase transition hover:bg-rose-600 hover:text-white"
+          >
+            <span>🔒</span> Sign Out OMS
+          </button>
+          <button
             onClick={() => {
               if (confirm("Reset database to initial demo state? All orders, products, and logs will be restored.")) {
                 db.resetToFactory();
@@ -243,6 +264,13 @@ export function AdminLayout({ onBackToStore }: { onBackToStore: () => void }) {
               className="hidden sm:flex items-center gap-1.5 rounded-full border border-purple/20 bg-canvas px-4 py-2 text-xs font-bold tracking-wider text-purple uppercase transition hover:bg-lilac"
             >
               <span>↗</span> View Store
+            </button>
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3.5 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100"
+              title="Sign Out of Admin OMS"
+            >
+              <span>🔒</span> Sign Out
             </button>
             <div className="flex items-center gap-2 rounded-full border border-purple/15 bg-white p-1 pl-3 shadow-xs">
               <span className="hidden sm:block text-right">

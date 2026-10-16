@@ -51,7 +51,14 @@ npm run dev
 npm run build
 ```
 
-Open [http://localhost:5173/](http://localhost:5173/) to view the live store. Click **Admin Dashboard** in the top-right header to access the OMS.
+Open [http://localhost:5173/](http://localhost:5173/) to view the live customer store.
+
+### 🔐 Accessing the Admin OMS (Staff Portal)
+Normal shoppers see only the customer-facing e-commerce storefront. To access the Order Management System (OMS):
+- Click **"Staff Portal"** in the website footer.
+- Or append `/#admin` to the URL (e.g. `https://your-domain.vercel.app/#admin` or `http://localhost:5173/#admin`).
+- Or press keyboard shortcut: **`Ctrl + Alt + A`**.
+- Authenticate through the secure **Staff Sign-In Gate** using corporate credentials (`admin@duck.care`, password: `admin123`) or click any 1-Click Evaluation Profile.
 
 ---
 

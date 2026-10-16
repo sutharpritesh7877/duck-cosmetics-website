@@ -4,6 +4,7 @@ import { db } from "./backend/db";
 import { orderService } from "./backend/orderService";
 import { authService } from "./backend/authService";
 import { AdminLayout } from "./components/admin/AdminLayout";
+import { StaffLoginModal } from "./components/admin/StaffLoginModal";
 import { Order, ProductItem, PaymentMethod } from "./types";
 
 type Category = "Baby Care" | "Face Wash" | "Vapor Rub" | "Ortho Pain Oil" | "Cosmetics";
@@ -549,6 +550,7 @@ export default function App() {
   const [selected, setSelected] = useState<"All" | Category>("All");
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [adminView, setAdminView] = useState(false);
+  const [staffLoginOpen, setStaffLoginOpen] = useState(false);
   const [accountScreen, setAccountScreen] = useState<AccountScreen | null>(null);
   const [customerSignedIn, setCustomerSignedIn] = useState(false);
   const [wishlist, setWishlist] = useState<string[]>([]);
@@ -857,13 +859,81 @@ export default function App() {
     setAiInput("");
   };
 
+  const handleOpenStaffPortal = () => {
+    if (authService.isAuthenticated()) {
+      setAdminView(true);
+    } else {
+      setStaffLoginOpen(true);
+    }
+  };
+
+  useEffect(() => {
+    const handleHash = () => {
+      if (typeof window !== "undefined" && window.location.hash === "#admin") {
+        if (authService.isAuthenticated()) {
+          setAdminView(true);
+        } else {
+          setStaffLoginOpen(true);
+        }
+      }
+    };
+
+    handleHash();
+    window.addEventListener("hashchange", handleHash);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Secret staff keyboard shortcut: Ctrl + Alt + A
+      if (e.ctrlKey && e.altKey && (e.key === "a" || e.key === "A")) {
+        e.preventDefault();
+        handleOpenStaffPortal();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("hashchange", handleHash);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
   // Switch to complete Admin OMS Layout when adminView is true
   if (adminView) {
-    return <AdminLayout onBackToStore={() => setAdminView(false)} />;
+    return (
+      <AdminLayout
+        onBackToStore={() => {
+          setAdminView(false);
+          if (typeof window !== "undefined" && window.location.hash === "#admin") {
+            window.history.replaceState(null, "", window.location.pathname);
+          }
+        }}
+        onSignOut={() => {
+          setAdminView(false);
+          setStaffLoginOpen(false);
+          if (typeof window !== "undefined" && window.location.hash === "#admin") {
+            window.history.replaceState(null, "", window.location.pathname);
+          }
+        }}
+      />
+    );
   }
 
   return (
     <main className="min-h-screen overflow-hidden bg-canvas text-ink">
+      {/* Staff Authentication Gate Modal */}
+      <StaffLoginModal
+        isOpen={staffLoginOpen}
+        onClose={() => {
+          setStaffLoginOpen(false);
+          if (typeof window !== "undefined" && window.location.hash === "#admin") {
+            window.history.replaceState(null, "", window.location.pathname);
+          }
+        }}
+        onSuccess={() => {
+          setStaffLoginOpen(false);
+          setAdminView(true);
+        }}
+      />
+
       {accountScreen && (
         <AccountPortal
           initialScreen={accountScreen}
@@ -920,12 +990,6 @@ export default function App() {
         </nav>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setAdminView(true)}
-            className="rounded-full border border-purple/30 bg-purple/10 px-3.5 py-2 text-[10px] font-bold text-purple uppercase transition hover:bg-purple hover:text-white"
-          >
-            Admin Dashboard
-          </button>
-          <button
             onClick={() => setAccountScreen(customerSignedIn ? "profile" : "login")}
             className="grid h-11 w-11 place-items-center rounded-full border border-purple/20 text-purple transition hover:border-purple hover:bg-lilac"
             aria-label={customerSignedIn ? "Open my profile" : "Sign in"}
@@ -951,8 +1015,9 @@ export default function App() {
         {menuOpen && (
           <nav className="absolute top-full right-0 left-0 flex flex-col items-start gap-5 border-b border-purple/10 bg-white p-6 text-sm font-bold uppercase shadow-lg lg:hidden">
             {categories.map((category) => <button key={category.name} onClick={() => { chooseCategory(category.name); setMenuOpen(false); }}>{category.name}</button>)}
+            <button onClick={() => { scrollTo("products"); setMenuOpen(false); }}>Bestsellers</button>
             <button onClick={() => { scrollTo("promise"); setMenuOpen(false); }}>Our promise</button>
-            <button onClick={() => { setAdminView(true); setMenuOpen(false); }}>Admin Dashboard</button>
+            <button onClick={() => { scrollTo("about"); setMenuOpen(false); }}>About Duck</button>
           </nav>
         )}
       </header>
@@ -1607,7 +1672,7 @@ export default function App() {
             <button onClick={() => setPolicyOpen("returns")}>Returns</button>
             <button onClick={() => setPolicyOpen("faq")}>FAQ</button>
             <button onClick={() => scrollTo("contact")}>Contact</button>
-            <button onClick={() => setAdminView(true)} className="font-bold text-coral">Admin Dashboard</button>
+            <button onClick={handleOpenStaffPortal} className="transition hover:text-white">Staff Portal</button>
           </div>
         </div>
       </footer>

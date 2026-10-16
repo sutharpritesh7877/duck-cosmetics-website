@@ -76,15 +76,104 @@ export const ROLE_PERMISSIONS: Record<StaffRole, string[]> = {
   ],
 };
 
-let currentStaffUser: StaffUser = db.getStaff()[0]; // Default to Owner
+const STAFF_SESSION_KEY = "duck_staff_session_v1";
+
+function loadSessionUser(): StaffUser | null {
+  try {
+    const raw = typeof window !== "undefined" ? localStorage.getItem(STAFF_SESSION_KEY) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.email) {
+        const staff = db.getStaff().find((s) => s.email.toLowerCase() === parsed.email.toLowerCase());
+        if (staff && staff.isActive) return staff;
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to parse staff session", e);
+  }
+  return null;
+}
+
+let currentStaffUser: StaffUser | null = loadSessionUser();
 
 export const authService = {
+  isAuthenticated(): boolean {
+    return currentStaffUser !== null;
+  },
+
   getCurrentUser(): StaffUser {
+    if (!currentStaffUser) {
+      const defaultStaff = db.getStaff()[0];
+      return defaultStaff;
+    }
     return currentStaffUser;
   },
 
   setCurrentUser(user: StaffUser) {
     currentStaffUser = user;
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(user));
+    }
+    db.notify();
+  },
+
+  loginStaff(email: string, password?: string): { success: boolean; error?: string; user?: StaffUser } {
+    const cleanEmail = email.trim().toLowerCase();
+    const staffList = db.getStaff();
+    const match = staffList.find((s) => s.email.toLowerCase() === cleanEmail);
+
+    if (!match) {
+      return {
+        success: false,
+        error: "Unrecognized staff email address. Please use authorized personnel credentials.",
+      };
+    }
+
+    if (!match.isActive) {
+      return {
+        success: false,
+        error: "This staff account has been deactivated. Please contact store management.",
+      };
+    }
+
+    // Optional demo password check - if password provided, must match 'admin123' or 'duck2026' or 4+ characters
+    if (password && password.trim().length > 0 && password.trim() !== "admin123" && password.trim() !== "duck2026" && password.trim().length < 4) {
+      return {
+        success: false,
+        error: "Invalid password or security PIN. Default demo password is admin123",
+      };
+    }
+
+    currentStaffUser = match;
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(match));
+    }
+
+    db.addAuditLog(
+      "Staff Logged In",
+      "Authentication",
+      match.id,
+      `${match.name} (${match.role}) authenticated successfully to OMS`
+    );
+
+    db.notify();
+    return { success: true, user: match };
+  },
+
+  logoutStaff() {
+    if (currentStaffUser) {
+      db.addAuditLog(
+        "Staff Logged Out",
+        "Authentication",
+        currentStaffUser.id,
+        `${currentStaffUser.name} signed out from OMS`
+      );
+    }
+    currentStaffUser = null;
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(STAFF_SESSION_KEY);
+    }
     db.notify();
   },
 
@@ -95,15 +184,18 @@ export const authService = {
       currentStaffUser = match;
     } else {
       currentStaffUser = {
-        ...currentStaffUser,
+        ...this.getCurrentUser(),
         role,
         permissions: ROLE_PERMISSIONS[role] || [],
       };
     }
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(currentStaffUser));
+    }
     db.notify();
   },
 
-  can(permission: string, user: StaffUser = currentStaffUser): boolean {
+  can(permission: string, user: StaffUser = this.getCurrentUser()): boolean {
     if (user.role === "Owner / Super Admin") return true;
     const permissions = ROLE_PERMISSIONS[user.role] || [];
     if (permissions.includes("all")) return true;
@@ -116,7 +208,8 @@ export const authService = {
     return false;
   },
 
-  canViewCustomerSensitive(user: StaffUser = currentStaffUser): boolean {
+  canViewCustomerSensitive(user: StaffUser = this.getCurrentUser()): boolean {
     return user.role === "Owner / Super Admin" || user.role === "Admin Manager" || user.role === "Customer Support";
   },
 };
+
