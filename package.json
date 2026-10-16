@@ -10,7 +10,6 @@
     "format": "oxfmt"
   },
   "dependencies": {
-    "@rolldown/binding-win32-x64-msvc": "^1.2.14",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
