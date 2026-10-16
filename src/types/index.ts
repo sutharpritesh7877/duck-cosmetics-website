@@ -375,6 +375,10 @@ export interface StoreSettings {
   announcementTicker: string[];
   serviceablePinCodes: string[];
   maintenanceMode: boolean;
+  logoUrl?: string;
+  heroHeadline?: string;
+  heroSubtitle?: string;
+  promoBannerText?: string;
   productionDbConfig?: {
     provider: "supabase" | "postgresql" | "firebase" | "mongodb" | "custom_rest";
     apiUrl: string;

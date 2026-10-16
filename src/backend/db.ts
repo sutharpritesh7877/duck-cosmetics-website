@@ -64,6 +64,10 @@ export const initialSettings: StoreSettings = {
     "560001", "560034", "600001", "700001", "500001", "302001", "226001",
   ],
   maintenanceMode: false,
+  logoUrl: "/duck-logo.png",
+  heroHeadline: "Gentle daily care for your whole family.",
+  heroSubtitle: "Thoughtfully crafted baby care, everyday cosmetics, soothing vapor balms, and herbal ortho oils. Made with plant-rich formulas and verified safety for Indian homes.",
+  promoBannerText: "Buy any cosmetic and unlock a free face wash (₹349 value)",
 };
 
 export const initialStaff: StaffUser[] = [

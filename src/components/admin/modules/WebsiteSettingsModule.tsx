@@ -208,6 +208,24 @@ export function WebsiteSettingsModule() {
               />
             </label>
 
+            <div className="flex items-center justify-between rounded-2xl border border-purple/15 bg-canvas/50 p-4">
+              <div>
+                <strong className="block text-purple-dark text-xs font-bold">Complimentary Face Wash Promotional Offer</strong>
+                <p className="text-[11px] text-ink/50 mt-0.5">
+                  Automatically grants a free 150ml Face Wash ($0.00 / ₹0.00) when customers order any Cosmetic product.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormState({ ...formState, autoFreeFaceWashOffer: !formState.autoFreeFaceWashOffer })}
+                className={`rounded-full px-4 py-1.5 text-xs font-bold uppercase transition ${
+                  formState.autoFreeFaceWashOffer ? "bg-mint text-purple-dark" : "bg-red-100 text-red-700"
+                }`}
+              >
+                {formState.autoFreeFaceWashOffer ? "Promotion Active" : "Promotion Disabled"}
+              </button>
+            </div>
+
             <label className="block">
               <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Serviceable PIN Codes (Comma-separated)</span>
               <textarea
@@ -355,21 +373,45 @@ export function WebsiteSettingsModule() {
             </label>
 
             <label className="block">
-              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Payment Gateway (Razorpay / PhonePe)</span>
+              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Payment Gateway Provider</span>
+              <select
+                value={formState.paymentGatewayConfig?.provider || "razorpay"}
+                onChange={(e) =>
+                  setFormState({
+                    ...formState,
+                    paymentGatewayConfig: {
+                      provider: e.target.value as any,
+                      keyId: formState.paymentGatewayConfig?.keyId || "",
+                      keySecret: formState.paymentGatewayConfig?.keySecret || "",
+                      active: true,
+                    },
+                  })
+                }
+                className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none font-semibold"
+              >
+                <option value="razorpay">Razorpay (Cards, UPI, Netbanking)</option>
+                <option value="stripe">Stripe (International & Indian Cards / Wallets)</option>
+                <option value="phonepe">PhonePe Payment Gateway</option>
+                <option value="cashfree">Cashfree Payments</option>
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Gateway Key ID / Publishable Key</span>
               <input
                 value={formState.paymentGatewayConfig?.keyId || ""}
                 onChange={(e) =>
                   setFormState({
                     ...formState,
                     paymentGatewayConfig: {
-                      provider: "razorpay",
+                      provider: formState.paymentGatewayConfig?.provider || "razorpay",
                       keyId: e.target.value,
                       keySecret: formState.paymentGatewayConfig?.keySecret || "",
                       active: true,
                     },
                   })
                 }
-                placeholder="rzp_live_xxxxxxxxxxxxxxxx"
+                placeholder="rzp_live_xxxxxxxxxxxxxxxx or pk_live_xxxxxxxxxxxxxxxx"
                 className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-mono text-[11px]"
               />
             </label>

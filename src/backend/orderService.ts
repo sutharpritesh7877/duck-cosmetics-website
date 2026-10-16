@@ -64,7 +64,37 @@ export const orderService = {
     const settings = db.getSettings();
     const products = db.getProducts();
 
-    // 1. Concurrency and stock check
+    // 1. Free Gift Promotion Server-Side Audit & Abuse Prevention
+    const freeGifts = params.items.filter(
+      (item) => item.price === 0 || item.sku === "DUCK-FW-DFW-150-GIFT"
+    );
+
+    if (freeGifts.length > 0) {
+      if (!settings.autoFreeFaceWashOffer) {
+        return {
+          success: false,
+          error: "The complimentary Face Wash promotion is currently inactive.",
+        };
+      }
+      const hasCosmetics = params.items.some(
+        (item) => item.category === "Cosmetics" && item.price > 0
+      );
+      if (!hasCosmetics) {
+        return {
+          success: false,
+          error: "Complimentary gift requires at least one cosmetic item in cart.",
+        };
+      }
+      const totalGiftQty = freeGifts.reduce((sum, item) => sum + item.quantity, 0);
+      if (totalGiftQty > 1 || freeGifts.length > 1) {
+        return {
+          success: false,
+          error: "Promotion limit exceeded: strictly 1 complimentary Face Wash allowed per order.",
+        };
+      }
+    }
+
+    // 2. Concurrency and stock check
     for (const item of params.items) {
       const p = products.find((prod) => prod.id === item.productId);
       if (!p) {
@@ -78,7 +108,7 @@ export const orderService = {
       }
     }
 
-    // 2. Calculations
+    // 3. Calculations
     const subtotal = params.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const discountTotal = params.discountAmount || 0;
     const discountedSubtotal = Math.max(0, subtotal - discountTotal);

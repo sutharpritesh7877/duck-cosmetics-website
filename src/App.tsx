@@ -6,6 +6,7 @@ import { authService } from "./backend/authService";
 import { AdminLayout } from "./components/admin/AdminLayout";
 import { StaffLoginModal } from "./components/admin/StaffLoginModal";
 import { Order, ProductItem, PaymentMethod } from "./types";
+import { sanitizeText, isValidEmail, isValidPhone, isValidPinCode } from "./utils/sanitize";
 
 type Category = "Baby Care" | "Face Wash" | "Vapor Rub" | "Ortho Pain Oil" | "Cosmetics";
 
@@ -192,10 +193,44 @@ function AccountPortal({
   initialScreen,
   onClose,
   onAuthenticated,
+  custName,
+  setCustName,
+  custPhone,
+  setCustPhone,
+  custEmail,
+  setCustEmail,
+  custAddress1,
+  setCustAddress1,
+  custAddress2,
+  setCustAddress2,
+  custCity,
+  setCustCity,
+  custState,
+  setCustState,
+  pinCode,
+  setPinCode,
+  logoUrl,
 }: {
   initialScreen: AccountScreen;
   onClose: () => void;
   onAuthenticated: () => void;
+  custName: string;
+  setCustName: (val: string) => void;
+  custPhone: string;
+  setCustPhone: (val: string) => void;
+  custEmail: string;
+  setCustEmail: (val: string) => void;
+  custAddress1: string;
+  setCustAddress1: (val: string) => void;
+  custAddress2: string;
+  setCustAddress2: (val: string) => void;
+  custCity: string;
+  setCustCity: (val: string) => void;
+  custState: string;
+  setCustState: (val: string) => void;
+  pinCode: string;
+  setPinCode: (val: string) => void;
+  logoUrl?: string;
 }) {
   const [screen, setScreen] = useState<AccountScreen>(initialScreen);
   const [showPassword, setShowPassword] = useState(false);
@@ -204,12 +239,77 @@ function AccountPortal({
   const [returnReason, setReturnReason] = useState<any>("Damaged on Arrival");
   const [returnComments, setReturnComments] = useState("");
   const [returnSuccess, setReturnSuccess] = useState("");
+  const [profileSuccess, setProfileSuccess] = useState("");
 
   useEffect(() => {
     return db.subscribe(() => {
       setCustomerOrders([...db.getOrders()]);
     });
   }, []);
+
+  // RLS Data Isolation: A customer only sees their own historical order records
+  const myOrders = customerOrders.filter((ord) => {
+    if (!custEmail && !custPhone) return true;
+    const matchEmail = custEmail && ord.customerEmail.trim().toLowerCase() === custEmail.trim().toLowerCase();
+    const matchPhone = custPhone && ord.customerPhone.replace(/\D/g, "") === custPhone.replace(/\D/g, "");
+    return matchEmail || matchPhone;
+  });
+
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    const safeName = sanitizeText(custName, 80);
+    const safePhone = sanitizeText(custPhone, 15);
+    const safeEmail = sanitizeText(custEmail, 80);
+    const safeAddr1 = sanitizeText(custAddress1, 150);
+    const safeAddr2 = sanitizeText(custAddress2, 150);
+    const safeCity = sanitizeText(custCity, 80);
+    const safeState = sanitizeText(custState, 50);
+    const safePin = sanitizeText(pinCode, 10);
+
+    const profileData = {
+      custName: safeName,
+      custPhone: safePhone,
+      custEmail: safeEmail,
+      custAddress1: safeAddr1,
+      custAddress2: safeAddr2,
+      custCity: safeCity,
+      custState: safeState,
+      pinCode: safePin,
+    };
+    try {
+      localStorage.setItem("duck_customer_profile", JSON.stringify(profileData));
+    } catch {
+      // ignore
+    }
+
+    const existingCustomer = db.getCustomers().find(c => c.email === safeEmail || c.phone === safePhone);
+    db.saveCustomer({
+      id: existingCustomer?.id || `cst-${Date.now()}`,
+      name: safeName || "Valued Customer",
+      email: safeEmail || "",
+      phone: safePhone || "",
+      addresses: [
+        {
+          fullName: safeName,
+          phone: safePhone,
+          email: safeEmail,
+          addressLine1: safeAddr1,
+          addressLine2: safeAddr2,
+          city: safeCity,
+          state: safeState,
+          pinCode: safePin || "380006",
+          country: "India",
+          isDefault: true,
+        },
+      ],
+      totalOrders: existingCustomer?.totalOrders || myOrders.length,
+      totalSpent: existingCustomer?.totalSpent || myOrders.reduce((s, o) => s + o.grandTotal, 0),
+      status: existingCustomer?.status || "Active",
+      createdAt: existingCustomer?.createdAt || new Date().toISOString(),
+    });
+
+    setProfileSuccess("Profile details and addresses saved to database successfully.");
+  };
 
   const handleCancelOrder = (order: Order) => {
     if (!confirm(`Are you sure you want to cancel order ${order.orderNumber}?`)) return;
@@ -261,7 +361,14 @@ function AccountPortal({
         <div className="grid min-h-screen lg:grid-cols-2">
           <div className="relative hidden overflow-hidden bg-purple p-14 text-white lg:flex lg:flex-col lg:justify-between">
             <span className="absolute -top-32 -right-24 h-96 w-96 rounded-full border border-white/15" />
-            <div className="relative inline-flex w-fit rounded-xl bg-white p-2"><img src="/duck-logo.png" alt="Duck" className="h-14 w-36 object-contain" /></div>
+            <div className="relative inline-flex w-fit rounded-xl bg-white p-2">
+              <img
+                src={logoUrl || "/duck-logo.png"}
+                onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }}
+                alt="Duck"
+                className="h-14 w-36 object-contain"
+              />
+            </div>
             <div className="relative max-w-xl">
               <p className="text-[10px] font-bold tracking-[0.18em] text-lilac uppercase">Your Duck account</p>
               <h2 className="mt-5 font-display text-6xl leading-[0.95] font-semibold">Care made personal.</h2>
@@ -274,7 +381,12 @@ function AccountPortal({
               <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" /></svg>
             </button>
             <div className="w-full max-w-md">
-              <img src="/duck-logo.png" alt="Duck" className="mb-10 h-12 w-28 object-contain lg:hidden" />
+              <img
+                src={logoUrl || "/duck-logo.png"}
+                onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }}
+                alt="Duck"
+                className="mb-10 h-12 w-28 object-contain lg:hidden"
+              />
               {screen === "login" && (
                 <>
                   <p className="text-[9px] font-bold tracking-[0.16em] text-purple uppercase">Welcome back</p>
@@ -330,7 +442,7 @@ function AccountPortal({
   return (
     <div className="fixed inset-0 z-[90] overflow-y-auto bg-admin">
       <header className="sticky top-0 z-10 flex items-center justify-between border-b border-purple/10 bg-white px-5 py-4 md:px-10">
-        <button onClick={onClose}><img src="/duck-logo.png" alt="Duck" className="h-11 w-28 object-contain" /></button>
+        <button onClick={onClose}><img src={logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="Duck" className="h-11 w-28 object-contain" /></button>
         <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full bg-lilac text-purple" aria-label="Close account"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" /></svg></button>
       </header>
       <div className="mx-auto grid max-w-6xl gap-6 px-5 py-8 lg:grid-cols-[16rem_1fr]">
@@ -348,7 +460,7 @@ function AccountPortal({
                 onClick={() => setScreen(item as AccountScreen)}
                 className={`w-full rounded-xl px-4 py-3 text-left text-xs font-bold capitalize ${screen === item ? "bg-white text-purple font-bold shadow-xs" : "text-white/55 hover:bg-white/10 hover:text-white"}`}
               >
-                {item === "profile" ? "My profile" : `My orders (${customerOrders.length})`}
+                {item === "profile" ? "My profile" : `My orders (${myOrders.length})`}
               </button>
             ))}
             <button className="w-full rounded-xl px-4 py-3 text-left text-xs font-bold text-white/55 hover:bg-white/10 hover:text-white">Saved addresses</button>
@@ -365,19 +477,28 @@ function AccountPortal({
           )}
 
           {screen === "profile" ? (
-            <>
+            <form onSubmit={handleSaveProfile}>
               <p className="text-[9px] font-bold tracking-wider text-purple uppercase">My account</p>
               <h1 className="mt-2 font-display text-4xl font-semibold">Profile details</h1>
-              <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                <label><span className="mb-2 block text-[9px] font-bold uppercase">Full name</span><input value={custName} onChange={(e) => setCustName(e.target.value)} placeholder="Enter your full name" className="checkout-input" /></label>
-                <label><span className="mb-2 block text-[9px] font-bold uppercase">Mobile</span><input value={custPhone} onChange={(e) => setCustPhone(e.target.value)} placeholder="10-digit mobile number" className="checkout-input" /></label>
-                <label><span className="mb-2 block text-[9px] font-bold uppercase">Email</span><input value={custEmail} onChange={(e) => setCustEmail(e.target.value)} placeholder="you@example.com" className="checkout-input" /></label>
-                <label><span className="mb-2 block text-[9px] font-bold uppercase">City & State</span><input value={custCity ? `${custCity}, ${custState}` : ""} onChange={(e) => setCustCity(e.target.value)} placeholder="City, State" className="checkout-input" /></label>
+              {profileSuccess && (
+                <div className="mt-4 rounded-xl bg-mint p-3 text-xs font-semibold text-purple-dark">
+                  ✓ {profileSuccess}
+                </div>
+              )}
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">Full name</span><input value={custName} onChange={(e) => setCustName(e.target.value)} required placeholder="Enter your full name" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">Mobile</span><input value={custPhone} onChange={(e) => setCustPhone(e.target.value)} required placeholder="10-digit mobile number" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">Email</span><input value={custEmail} onChange={(e) => setCustEmail(e.target.value)} required type="email" placeholder="you@example.com" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">City</span><input value={custCity} onChange={(e) => setCustCity(e.target.value)} required placeholder="City" className="checkout-input" /></label>
+                <label className="sm:col-span-2"><span className="mb-2 block text-[9px] font-bold uppercase">Delivery Address (House/Street/Flat)</span><input value={custAddress1} onChange={(e) => setCustAddress1(e.target.value)} required placeholder="House, street, apartment" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">Area / Landmark</span><input value={custAddress2} onChange={(e) => setCustAddress2(e.target.value)} placeholder="Area, landmark" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">State</span><input value={custState} onChange={(e) => setCustState(e.target.value)} required placeholder="State (e.g. Gujarat)" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">PIN Code</span><input value={pinCode} onChange={(e) => setPinCode(e.target.value)} required placeholder="6-digit PIN code" className="checkout-input" /></label>
               </div>
-              <button className="mt-6 rounded-full bg-purple px-7 py-3 text-[10px] font-bold tracking-wider text-white uppercase">Save changes</button>
+              <button type="submit" className="mt-6 rounded-full bg-purple px-7 py-3 text-[10px] font-bold tracking-wider text-white uppercase hover:bg-purple-dark shadow-md transition">Save changes</button>
               <div className="mt-10 grid gap-4 sm:grid-cols-3">
                 {[
-                  ["Orders on Record", customerOrders.length.toString()],
+                  ["Orders on Record", myOrders.length.toString()],
                   ["Wishlist Items", "06"],
                   ["Saved Addresses", "01"],
                 ].map(([label, value]) => (
@@ -387,17 +508,17 @@ function AccountPortal({
                   </div>
                 ))}
               </div>
-            </>
+            </form>
           ) : (
             <>
               <p className="text-[9px] font-bold tracking-wider text-purple uppercase">Live Orders & Fulfillment</p>
               <h1 className="mt-2 font-display text-4xl font-semibold">My orders</h1>
 
               <div className="mt-8 space-y-5">
-                {customerOrders.length === 0 ? (
+                {myOrders.length === 0 ? (
                   <p className="py-8 text-center text-sm text-ink/40">You have not placed any orders yet.</p>
                 ) : (
-                  customerOrders.map((ord) => {
+                  myOrders.map((ord) => {
                     const isCancellable = ord.orderStatus === "New" || ord.orderStatus === "Awaiting Confirmation" || ord.orderStatus === "Confirmed";
                     const isReturnable = ord.orderStatus === "Delivered";
 
@@ -587,6 +708,26 @@ export default function App() {
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
   const [checkoutError, setCheckoutError] = useState("");
 
+  // Hydrate saved customer profile from localStorage
+  useEffect(() => {
+    try {
+      const savedProfile = localStorage.getItem("duck_customer_profile");
+      if (savedProfile) {
+        const p = JSON.parse(savedProfile);
+        if (p.custName) setCustName(p.custName);
+        if (p.custPhone) setCustPhone(p.custPhone);
+        if (p.custEmail) setCustEmail(p.custEmail);
+        if (p.custAddress1) setCustAddress1(p.custAddress1);
+        if (p.custAddress2) setCustAddress2(p.custAddress2);
+        if (p.custCity) setCustCity(p.custCity);
+        if (p.custState) setCustState(p.custState);
+        if (p.pinCode) setPinCode(p.pinCode);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // Dynamic store data from db
   const [currentProducts, setCurrentProducts] = useState<ProductItem[]>(db.getProducts());
   const [storeSettings, setStoreSettings] = useState(db.getSettings());
@@ -598,20 +739,32 @@ export default function App() {
     });
   }, []);
 
-  const storeCatalog: Product[] = currentProducts.map((p) => ({
-    id: p.id,
-    name: p.name,
-    category: p.category as Category,
-    detail: p.detail,
-    price: `₹${p.price}`,
-    image: p.image,
-    badge: p.badge,
-    stock: p.stock,
-    lowStockThreshold: p.lowStockThreshold,
-    sku: p.sku,
-    gstRate: p.gstRate,
-    mrp: p.mrp,
-  }));
+  // Audit Item 1: Product Sync - Only active products appear on storefront shelves
+  const storeCatalog: Product[] = currentProducts
+    .filter((p) => p.status === "Active")
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      category: p.category as Category,
+      detail: p.detail,
+      price: `₹${p.price}`,
+      image: p.image,
+      badge: p.badge,
+      stock: p.stock,
+      lowStockThreshold: p.lowStockThreshold,
+      sku: p.sku,
+      gstRate: p.gstRate,
+      mrp: p.mrp,
+    }));
+
+  const promoActive = storeSettings.autoFreeFaceWashOffer ?? true;
+
+  // Audit Item 1 & 4: Free gift promotion sync & abuse prevention
+  useEffect(() => {
+    if (!promoActive && freeWashAdded) {
+      setFreeWashAdded(false);
+    }
+  }, [promoActive, freeWashAdded]);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -624,7 +777,7 @@ export default function App() {
     selected === "All" ? storeCatalog.slice(0, 8) : storeCatalog.filter((product) => product.category === selected);
 
   const cosmeticsInCart = cartItems.some((product) => product.category === "Cosmetics");
-  const cartCount = cartItems.length + (freeWashAdded ? 1 : 0);
+  const cartCount = cartItems.length + (freeWashAdded && promoActive ? 1 : 0);
   const subtotal = cartItems.reduce(
     (sum, product) => sum + Number(product.price.replace(/[^\d]/g, "")),
     0,
@@ -650,7 +803,11 @@ export default function App() {
   };
 
   const addToCart = (product: Product) => {
-    setCartItems((items) => [...items, product]);
+    const nextItems = [...cartItems, product];
+    setCartItems(nextItems);
+    if (promoActive && product.category === "Cosmetics" && !freeWashAdded) {
+      setFreeWashAdded(true);
+    }
     setCartOpen(true);
   };
 
@@ -664,7 +821,11 @@ export default function App() {
   };
 
   const addProductQuantity = (product: Product, buyNow = false) => {
-    setCartItems((items) => [...items, ...Array.from({ length: productQuantity }, () => product)]);
+    const nextItems = [...cartItems, ...Array.from({ length: productQuantity }, () => product)];
+    setCartItems(nextItems);
+    if (promoActive && product.category === "Cosmetics" && !freeWashAdded) {
+      setFreeWashAdded(true);
+    }
     setActiveProduct(null);
     if (buyNow) {
       setCheckoutOpen(true);
@@ -676,7 +837,11 @@ export default function App() {
 
   const changeQuantity = (product: Product, change: number) => {
     if (change > 0) {
-      setCartItems((items) => [...items, product]);
+      const nextItems = [...cartItems, product];
+      setCartItems(nextItems);
+      if (promoActive && product.category === "Cosmetics" && !freeWashAdded) {
+        setFreeWashAdded(true);
+      }
       return;
     }
     const removeIndex = cartItems.findIndex((item) => item.name === product.name);
@@ -687,7 +852,7 @@ export default function App() {
   };
 
   const checkPinCode = () => {
-    const isValidPin = storeSettings.serviceablePinCodes.includes(pinCode) || /^[1-9][0-9]{5}$/.test(pinCode);
+    const isValidPin = storeSettings.serviceablePinCodes.includes(pinCode) || isValidPinCode(pinCode);
     setPinChecked(isValidPin);
   };
 
@@ -723,6 +888,29 @@ export default function App() {
     event.preventDefault();
     setCheckoutError("");
 
+    const safeName = sanitizeText(custName, 80);
+    const safePhone = sanitizeText(custPhone, 15);
+    const safeEmail = sanitizeText(custEmail, 80);
+    const safeAddr1 = sanitizeText(custAddress1, 150);
+    const safeAddr2 = sanitizeText(custAddress2, 150);
+    const safeCity = sanitizeText(custCity, 80);
+    const safeState = sanitizeText(custState, 50);
+    const safeNotes = sanitizeText(custNotes, 300);
+    const safePin = sanitizeText(pinCode, 10);
+
+    if (!isValidEmail(safeEmail)) {
+      setCheckoutError("Please provide a valid email address.");
+      return;
+    }
+    if (!isValidPhone(safePhone)) {
+      setCheckoutError("Please provide a valid 10-digit mobile phone number.");
+      return;
+    }
+    if (!isValidPinCode(safePin)) {
+      setCheckoutError("Please provide a valid 6-digit Indian PIN code.");
+      return;
+    }
+
     const itemsToOrder = cartLines.map((line) => {
       const rawPrice = Number(line.product.price.replace(/[^\d]/g, ""));
       const dbProd = currentProducts.find((p) => p.name === line.product.name);
@@ -739,7 +927,8 @@ export default function App() {
       };
     });
 
-    if (freeWashAdded) {
+    // Complimentary face wash added strictly once per order if cosmetic is present and promo is active
+    if (freeWashAdded && promoActive && cosmeticsInCart) {
       itemsToOrder.push({
         productId: "prd-003",
         name: "Daily Fresh Face Wash (Free Gift)",
@@ -754,25 +943,25 @@ export default function App() {
     }
 
     const res = orderService.createOrder({
-      customerName: custName,
-      customerEmail: custEmail,
-      customerPhone: custPhone,
+      customerName: safeName,
+      customerEmail: safeEmail,
+      customerPhone: safePhone,
       shippingAddress: {
-        fullName: custName,
-        phone: custPhone,
-        email: custEmail,
-        addressLine1: custAddress1,
-        addressLine2: custAddress2,
-        city: custCity,
-        state: custState,
-        pinCode: pinCode || "380006",
+        fullName: safeName,
+        phone: safePhone,
+        email: safeEmail,
+        addressLine1: safeAddr1,
+        addressLine2: safeAddr2,
+        city: safeCity,
+        state: safeState,
+        pinCode: safePin || "380006",
         country: "India",
       },
       items: itemsToOrder,
       paymentMethod: paymentMethod as PaymentMethod,
       couponCode: appliedCoupon || undefined,
       discountAmount: couponDiscount,
-      customerNotes: custNotes,
+      customerNotes: safeNotes,
     });
 
     if (res.success && res.order) {
@@ -788,11 +977,16 @@ export default function App() {
   const handleContactSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const name = form.get("name") as string;
-    const email = form.get("email") as string;
-    const phone = form.get("phone") as string;
-    const subject = form.get("subject") as string;
-    const message = form.get("message") as string;
+    const name = sanitizeText(form.get("name") as string, 80);
+    const email = sanitizeText(form.get("email") as string, 80);
+    const phone = sanitizeText(form.get("phone") as string, 15);
+    const subject = sanitizeText(form.get("subject") as string, 100);
+    const message = sanitizeText(form.get("message") as string, 1500);
+
+    if (!isValidEmail(email)) {
+      alert("Please provide a valid email address.");
+      return;
+    }
 
     db.saveTicket(
       {
@@ -944,6 +1138,23 @@ export default function App() {
             setCustomerSignedIn(true);
             setAccountScreen("profile");
           }}
+          custName={custName}
+          setCustName={setCustName}
+          custPhone={custPhone}
+          setCustPhone={setCustPhone}
+          custEmail={custEmail}
+          setCustEmail={setCustEmail}
+          custAddress1={custAddress1}
+          setCustAddress1={setCustAddress1}
+          custAddress2={custAddress2}
+          setCustAddress2={setCustAddress2}
+          custCity={custCity}
+          setCustCity={setCustCity}
+          custState={custState}
+          setCustState={setCustState}
+          pinCode={pinCode}
+          setPinCode={setPinCode}
+          logoUrl={storeSettings.logoUrl}
         />
       )}
 
@@ -962,7 +1173,12 @@ export default function App() {
       {/* Main Header */}
       <header className="relative z-30 flex h-20 items-center justify-between border-b border-purple/10 bg-white px-5 md:px-10">
         <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Duck home">
-          <img src="/duck-logo.png" alt="Duck" className="h-12 w-28 object-contain object-center md:w-32" />
+          <img
+            src={storeSettings.logoUrl || "/duck-logo.png"}
+            onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }}
+            alt="Duck"
+            className="h-12 w-28 object-contain object-center md:w-32"
+          />
         </button>
         <nav className="hidden items-center gap-8 text-xs font-bold tracking-[0.1em] uppercase lg:flex">
           <div onMouseEnter={() => setMegaOpen(true)} onMouseLeave={() => setMegaOpen(false)}>
@@ -1031,10 +1247,10 @@ export default function App() {
             Care made simple
           </span>
           <h1 className="max-w-3xl font-display text-6xl leading-[0.92] font-semibold tracking-[-0.045em] text-purple-dark md:text-8xl">
-            One little duck.<br /><span className="italic text-coral">A whole lot of care.</span>
+            {storeSettings.heroHeadline || "One little duck. A whole lot of care."}
           </h1>
           <p className="mt-7 max-w-xl text-base leading-relaxed text-ink/65 md:text-lg">
-            Thoughtful baby care, skin care, wellness relief, and cosmetics—made for the real rhythm of family life in India.
+            {storeSettings.heroSubtitle || "Thoughtful baby care, skin care, wellness relief, and cosmetics—made for the real rhythm of family life in India."}
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <button onClick={() => scrollTo("categories")} className="flex items-center gap-8 rounded-full bg-purple px-7 py-4 text-xs font-bold tracking-wider text-white uppercase transition hover:bg-purple-dark">
@@ -1050,21 +1266,21 @@ export default function App() {
           <div className="absolute bottom-16 left-12 h-52 w-52 rounded-full bg-lilac blur-2xl" />
           <div className="pack pack-oil z-10">
             <div className="pack-cap" />
-            <img src="/duck-logo.png" alt="" />
+            <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
             <small>ORTHO</small>
             <strong>PAIN OIL</strong>
             <span>Herbal comfort</span>
           </div>
           <div className="pack pack-baby z-20">
             <div className="pack-pump" />
-            <img src="/duck-logo.png" alt="" />
+            <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
             <small>BABY CARE</small>
             <strong>SOFT LOTION</strong>
             <span>Calendula + oat</span>
           </div>
           <div className="pack pack-rub z-30">
             <div className="pack-lid" />
-            <img src="/duck-logo.png" alt="" />
+            <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
             <small>VAPOR</small>
             <strong>COMFORT RUB</strong>
             <span>Eucalyptus + mint</span>
@@ -1073,13 +1289,19 @@ export default function App() {
       </section>
 
       {/* Free Gift Promo Banner */}
-      <button
-        onClick={() => chooseCategory("Cosmetics")}
-        className="group flex w-full items-center justify-center gap-4 bg-coral px-5 py-5 text-center text-xs font-bold tracking-[0.14em] text-white uppercase transition hover:bg-purple"
-      >
-        Buy any cosmetic and unlock a free face wash (₹349 value)
-        <span className="transition group-hover:translate-x-1"><ArrowIcon /></span>
-      </button>
+      {promoActive ? (
+        <button
+          onClick={() => chooseCategory("Cosmetics")}
+          className="group flex w-full items-center justify-center gap-4 bg-coral px-5 py-5 text-center text-xs font-bold tracking-[0.14em] text-white uppercase transition hover:bg-purple"
+        >
+          {storeSettings.promoBannerText || "Buy any cosmetic and unlock a free face wash (₹349 value)"}
+          <span className="transition group-hover:translate-x-1"><ArrowIcon /></span>
+        </button>
+      ) : (
+        <div className="flex w-full items-center justify-center gap-4 bg-purple px-5 py-4 text-center text-xs font-bold tracking-[0.14em] text-white uppercase">
+          Complimentary India shipping on orders over ₹{storeSettings.freeShippingThreshold} · Dermatologically tested
+        </div>
+      )}
 
       {/* Categories Grid */}
       <section id="categories" className="px-5 py-20 md:px-10 md:py-28">
@@ -1096,7 +1318,7 @@ export default function App() {
               <div className="aspect-[4/5] overflow-hidden">
                 <img src={category.image} alt="" className="h-full w-full object-cover transition duration-700 group-hover:scale-110" />
               </div>
-              {category.name === "Cosmetics" && <span className="absolute top-4 left-4 rounded-full bg-coral px-3 py-2 text-[9px] font-bold tracking-wider text-white uppercase shadow-lg">Free face wash</span>}
+              {promoActive && category.name === "Cosmetics" && <span className="absolute top-4 left-4 rounded-full bg-coral px-3 py-2 text-[9px] font-bold tracking-wider text-white uppercase shadow-lg">Free face wash</span>}
               <div className="absolute right-0 bottom-0 left-0 bg-gradient-to-t from-purple-dark via-purple-dark/80 to-transparent px-5 pt-16 pb-5 text-white">
                 <h3 className="font-display text-2xl font-semibold">{category.name}</h3>
                 <div className="mt-1 flex items-center justify-between">
@@ -1225,14 +1447,29 @@ export default function App() {
                       <strong className="pt-1 text-sm">{product.price}</strong>
                     </div>
                   ))}
-                  {freeWashAdded && (
-                    <div className="flex gap-4 rounded-2xl border border-dashed border-coral bg-blush p-3">
-                      <div className="grid h-20 w-16 place-items-center rounded-xl bg-white text-center text-[8px] font-bold text-purple uppercase">Duck<br />Face Wash</div>
-                      <div className="flex-1 py-1">
-                        <p className="text-[8px] font-bold tracking-wider text-coral uppercase">Your free gift</p>
-                        <h3 className="mt-1 font-display text-base font-semibold">Daily Fresh Face Wash</h3>
+                  {freeWashAdded && promoActive && (
+                    <div className="flex gap-4 rounded-2xl border border-dashed border-coral bg-blush p-3 items-center">
+                      <div className="grid h-16 w-16 place-items-center rounded-xl bg-white text-center text-[8px] font-bold text-purple uppercase p-1">
+                        <img src="https://images.unsplash.com/photo-1738892248212-80f7d1f5fc94?w=200" alt="Face Wash" className="h-9 w-9 object-cover rounded-lg mb-0.5" />
+                        Gift
                       </div>
-                      <strong className="pt-1 text-sm text-coral">Free</strong>
+                      <div className="flex-1 py-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="rounded bg-coral px-1.5 py-0.5 text-[8px] font-bold text-white uppercase">Limit 1</span>
+                          <p className="text-[8px] font-bold tracking-wider text-coral uppercase">Complimentary Gift</p>
+                        </div>
+                        <h3 className="mt-1 font-display text-sm font-semibold">Daily Fresh Face Wash (150 ml)</h3>
+                        <span className="text-[10px] text-ink/40 line-through">₹399.00</span>
+                      </div>
+                      <div className="text-right">
+                        <strong className="block text-sm text-coral font-bold">₹0.00</strong>
+                        <button
+                          onClick={() => setFreeWashAdded(false)}
+                          className="text-[9px] font-bold text-ink/40 hover:text-red-500 uppercase underline"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1240,14 +1477,14 @@ export default function App() {
             </div>
 
             <div className="border-t border-purple/10 p-6">
-              {cosmeticsInCart && !freeWashAdded && (
+              {promoActive && cosmeticsInCart && !freeWashAdded && (
                 <div className="mb-5 rounded-2xl bg-blush p-4">
                   <p className="text-[9px] font-bold tracking-wider text-coral uppercase">Congratulations—gift unlocked</p>
-                  <p className="mt-1 font-display text-lg font-semibold">Your free face wash is ready.</p>
+                  <p className="mt-1 font-display text-lg font-semibold">Your complimentary face wash is ready.</p>
                   <button onClick={() => setFreeWashAdded(true)} className="mt-3 flex items-center gap-2 text-[10px] font-bold tracking-wider text-purple uppercase">Add free gift <ArrowIcon /></button>
                 </div>
               )}
-              {!cosmeticsInCart && cartItems.length > 0 && (
+              {promoActive && !cosmeticsInCart && cartItems.length > 0 && (
                 <button onClick={() => { setCartOpen(false); chooseCategory("Cosmetics"); }} className="mb-5 w-full rounded-2xl bg-lilac p-4 text-left">
                   <span className="text-[9px] font-bold tracking-wider text-purple uppercase">Special offer</span>
                   <span className="mt-1 block font-display text-lg font-semibold">Add any cosmetic, get a free face wash.</span>
@@ -1308,7 +1545,12 @@ export default function App() {
       {checkoutOpen && (
         <div className="fixed inset-0 z-[65] overflow-y-auto bg-canvas">
           <header className="sticky top-0 z-10 flex items-center justify-between border-b border-purple/10 bg-white px-5 py-4 md:px-10">
-            <img src="/duck-logo.png" alt="Duck" className="h-11 w-28 object-contain" />
+            <img
+              src={storeSettings.logoUrl || "/duck-logo.png"}
+              onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }}
+              alt="Duck"
+              className="h-11 w-28 object-contain"
+            />
             <div className="hidden items-center gap-3 text-[9px] font-bold tracking-wider uppercase sm:flex">
               {["address", "payment", "confirmed"].map((step, index) => (
                 <span key={step} className={`flex items-center gap-2 ${checkoutStep === step ? "text-purple" : "text-ink/30"}`}>
@@ -1366,6 +1608,7 @@ export default function App() {
                     {[
                       ["UPI", "Google Pay, PhonePe, Paytm or any UPI app"],
                       ["Card", "Visa, Mastercard and RuPay debit or credit cards"],
+                      ["Stripe", "International & domestic cards powered by Stripe"],
                       ["Cash on Delivery", "Pay in cash when your order arrives"],
                     ].map(([method, note]) => (
                       <button type="button" key={method} onClick={() => setPaymentMethod(method)} className={`flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition ${paymentMethod === method ? "border-purple bg-lilac/50" : "border-purple/10"}`}>
@@ -1387,7 +1630,7 @@ export default function App() {
                   </label>
 
                   <button type="submit" className="mt-7 w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase">
-                    {paymentMethod === "Cash on Delivery" ? `Confirm Cash on Delivery Order (₹${finalOrderTotal.toLocaleString("en-IN")})` : `Pay ₹${finalOrderTotal.toLocaleString("en-IN")}`}
+                    {paymentMethod === "Cash on Delivery" ? `Confirm Cash on Delivery Order (₹${finalOrderTotal.toLocaleString("en-IN")})` : `Pay ₹${finalOrderTotal.toLocaleString("en-IN")} via ${paymentMethod}`}
                   </button>
                   <button type="button" onClick={() => setCheckoutStep("address")} className="mt-4 w-full text-[9px] font-bold tracking-wider text-purple uppercase">Back to address</button>
                 </form>
@@ -1436,7 +1679,7 @@ export default function App() {
               <p className="text-[9px] font-bold tracking-wider text-lilac uppercase">Order summary</p>
               <div className="mt-5 space-y-3">
                 {cartLines.map(({ product, quantity }) => <div key={product.name} className="flex justify-between gap-4 text-xs"><span className="text-white/65">{product.name} × {quantity}</span><strong>{product.price}</strong></div>)}
-                {freeWashAdded && <div className="flex justify-between text-xs text-lilac"><span>Free Face Wash</span><strong>Free</strong></div>}
+                {freeWashAdded && promoActive && <div className="flex justify-between text-xs text-lilac"><span>Daily Fresh Face Wash (Free Gift)</span><strong className="text-coral">₹0.00 (Free)</strong></div>}
               </div>
               <div className="mt-6 space-y-2 border-t border-white/15 pt-5 text-xs">
                 <div className="flex justify-between text-white/60"><span>Subtotal</span><span>₹{subtotal.toLocaleString("en-IN")}</span></div>
@@ -1454,7 +1697,14 @@ export default function App() {
       {activeProduct && (
         <div className="fixed inset-0 z-[55] overflow-y-auto bg-white" role="dialog" aria-modal="true" aria-label={`${activeProduct.name} product page`}>
           <header className="sticky top-0 z-30 flex items-center justify-between border-b border-purple/10 bg-white/95 px-5 py-4 backdrop-blur md:px-10">
-            <button onClick={() => setActiveProduct(null)}><img src="/duck-logo.png" alt="Duck" className="h-11 w-28 object-contain" /></button>
+            <button onClick={() => setActiveProduct(null)}>
+              <img
+                src={storeSettings.logoUrl || "/duck-logo.png"}
+                onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }}
+                alt="Duck"
+                className="h-11 w-28 object-contain"
+              />
+            </button>
             <p className="hidden text-[9px] font-bold tracking-[0.15em] text-purple uppercase sm:block">Product details</p>
             <button onClick={() => setActiveProduct(null)} className="grid h-10 w-10 place-items-center rounded-full bg-lilac text-purple" aria-label="Close product page">
               <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" /></svg>
@@ -1645,7 +1895,14 @@ export default function App() {
       <footer id="about" className="bg-purple-dark px-6 py-16 text-white md:px-12 md:py-20">
         <div className="grid gap-14 md:grid-cols-2">
           <div>
-            <div className="inline-flex rounded-xl bg-white p-2"><img src="/duck-logo.png" alt="Duck" className="h-14 w-36 object-contain" /></div>
+            <div className="inline-flex rounded-xl bg-white p-2">
+              <img
+                src={storeSettings.logoUrl || "/duck-logo.png"}
+                onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }}
+                alt="Duck"
+                className="h-14 w-36 object-contain"
+              />
+            </div>
             <h2 className="mt-8 max-w-xl font-display text-4xl leading-tight font-semibold md:text-5xl">Care for every little moment.</h2>
             <div className="mt-7 flex flex-col gap-2 text-xs text-white/50">
               <a href={`mailto:${storeSettings.supportEmail}`} className="hover:text-white">{storeSettings.supportEmail}</a>
@@ -1729,7 +1986,12 @@ export default function App() {
               <div className="relative flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="grid h-11 w-11 place-items-center rounded-full bg-white">
-                    <img src="/duck-logo.png" alt="" className="h-8 w-9 object-contain" />
+                    <img
+                      src={storeSettings.logoUrl || "/duck-logo.png"}
+                      onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }}
+                      alt=""
+                      className="h-8 w-9 object-contain"
+                    />
                   </span>
                   <div>
                     <p className="font-display text-xl font-semibold">Duck Care AI</p>
