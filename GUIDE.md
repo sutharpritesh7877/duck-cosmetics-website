@@ -214,6 +214,15 @@ CREATE TABLE IF NOT EXISTS audit_logs (
    * **Project URL**: `https://xxxxxxxxxxxx.supabase.co`
    * **Project API Keys**: Copy the `anon` `public` key and the `service_role` `secret` key.
 
+### 1.4 Connect Database Directly from the Live Admin OMS
+You can also connect and verify your live database directly through the Admin interface:
+1. Log in to the Admin OMS (`/#admin`) using your Super Admin master credentials (`sutharpritesh7877@gmail.com` / `Ram@7877545471`).
+2. Navigate to **Module 17: Website Settings**.
+3. Scroll down to the **"Production Database & Cloud API Credentials"** section.
+4. Select your provider (**Supabase**, **PostgreSQL**, **Firebase**, or **Custom REST API**).
+5. Paste your **Supabase API URL** (e.g., `https://xyz.supabase.co`) and **Public Anon Key**.
+6. Click **"Test Connection & Sync"** — the status indicator turns green with **"Connected & Synchronized"**.
+
 ---
 
 ## 3. Step 2: Cloud Image Storage Setup
@@ -348,7 +357,35 @@ In production, regular shoppers will never see or access the Admin OMS:
 
 ---
 
-## 10. Pre-Launch Checklist
+## 10. Complete Production Security Architecture
+
+Duck Cosmetics implements enterprise multi-layered defense to safeguard transactions, customer data, and admin operations:
+
+### 🛡️ 10.1 Edge & Network Security
+- **Full HTTPS (TLS 1.3)**: Automatic 256-Bit SSL certificates issued by Vercel for both `duckcosmetics.in` and `www.duckcosmetics.in`.
+- **HSTS Enforcement**: Forces modern browsers to establish encrypted HTTPS connections exclusively.
+- **Global DDoS Defense**: Traffic is filtered and distributed across Vercel’s global Edge network.
+
+### 🛡️ 10.2 Database Row-Level Security (RLS)
+- **Zero Anonymous Writes**: Unauthenticated visitors cannot alter products, modify inventory counts, or view sensitive transactions.
+- **SQL Sanitization**: All database queries are parameter-bound, preventing SQL injection vulnerabilities.
+
+### 🛡️ 10.3 Role-Based Access Control (RBAC) & Principle of Least Privilege
+- **Owner / Super Admin**: Has exclusive authority to modify staff accounts, view financial metrics, manage database configuration, and alter website settings.
+- **Fulfillment Staff (Packing & Shipping)**: Scoped strictly to packing orders, printing shipping labels, and marking deliveries. They cannot access revenue analytics or coupons.
+- **Customer Privacy & Data Minimization**: Customer phone numbers and emails are masked (`***-***-1234`) for roles that do not require contact information.
+
+### 🛡️ 10.4 Admin Obfuscation & Session Gate
+- **No Public Admin Buttons**: The customer-facing storefront contains zero visible administrative controls.
+- **Authentication Gate**: Admin panel access requires verified corporate credentials (`sutharpritesh7877@gmail.com`).
+- **Encrypted Session Persistence**: Authenticated sessions are kept in browser storage and can be instantly invalidated via the **"Sign Out OMS"** button.
+
+### 🛡️ 10.5 Immutable Audit Ledger
+- Every staff login, role escalation, order cancellation, price override, and refund is recorded in the tamper-evident audit ledger with timestamp and operator ID.
+
+---
+
+## 11. Pre-Launch Checklist
 
 Before announcing Duck Cosmetics to the public:
 

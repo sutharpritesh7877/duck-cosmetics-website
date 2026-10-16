@@ -86,10 +86,9 @@ function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
     return html.replace(`<!-- ${slotName} -->`, content)
   }
 
-  const title = config.title ?? "Figma Make App"
-  const description = config.description ?? ''
-  // Imported HTML keeps its own favicon; new Makes default to the Make product icon.
-  const favicon = config.icons?.icon ?? '/favicon.svg'
+  const title = config.title ?? "Duck Cosmetics · Gentle Care for Every Day"
+  const description = config.description ?? 'Thoughtful baby care, skin care, wellness relief, and cosmetics made for the real rhythm of family life in India.'
+  const favicon = config.icons?.icon ?? '/duck-logo.png'
   const socialImage = config.openGraph?.image ?? ''
   const language = sanitizeHtmlValue(config.language) || 'en'
   const googleAnalyticsId = sanitizeHtmlValue(config.analytics?.googleAnalyticsId)

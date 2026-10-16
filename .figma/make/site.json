@@ -1,7 +1,15 @@
 {
+  "title": "Duck Cosmetics · Gentle Care for Every Day",
   "description": "This professional website showcases Duck Cosmetics, offering users an engaging platform to explore and purchase high-quality cosmetic products.",
+  "language": "en",
+  "icons": {
+    "icon": "/duck-logo.png"
+  },
+  "openGraph": {
+    "image": "/duck-logo.png"
+  },
   "robots": {
-    "index": false
+    "index": true
   },
   "accessibility": {
     "addBypassLinks": false,

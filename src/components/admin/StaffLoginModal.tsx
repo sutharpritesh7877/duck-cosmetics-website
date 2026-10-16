@@ -85,7 +85,7 @@ export function StaffLoginModal({ isOpen, onClose, onSuccess }: StaffLoginModalP
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="sutharpritesh7877@gmail.com"
+                placeholder="Enter your corporate email address"
                 className="w-full rounded-xl border border-purple/20 bg-canvas px-4 py-2.5 text-sm font-semibold text-ink outline-none transition focus:border-purple focus:bg-white"
               />
             </div>
