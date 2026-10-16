@@ -2,6 +2,7 @@ import { useState } from "react";
 import { StoreSettings } from "../../../types";
 import { db } from "../../../backend/db";
 import { authService } from "../../../backend/authService";
+import { clearAllDemoData } from "../../../backend/demoCleaner";
 
 export function WebsiteSettingsModule() {
   const currentStaff = authService.getCurrentUser();
@@ -415,6 +416,40 @@ export function WebsiteSettingsModule() {
                 className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-mono text-[11px]"
               />
             </label>
+          </div>
+        </section>
+
+        {/* Production Clean Slate */}
+        <section className="rounded-3xl border border-red-200 bg-red-50/50 p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <span className="text-[10px] font-bold tracking-[0.16em] text-red-600 uppercase">Pre-Launch Production Slate</span>
+              <h3 className="font-display text-xl font-bold text-red-900">Clear All Demo Data</h3>
+              <p className="mt-1 text-xs text-red-700/80">
+                Wipe all mock/demo products, orders, test customers, and demo tickets so you can enter your real store catalog. Master Super Admin credentials and GST store settings are 100% preserved.
+              </p>
+            </div>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => {
+                  const confirmed = confirm(
+                    "Are you sure you want to clear all demo products, demo orders, and demo accounts? This will give you a clean production catalog. Your Master Super Admin login (sutharpritesh7877@gmail.com) and store settings will remain intact."
+                  );
+                  if (confirmed) {
+                    const res = clearAllDemoData(currentStaff.name, currentStaff.role);
+                    if (res.success) {
+                      setFeedback(res.message);
+                    } else {
+                      alert(res.message);
+                    }
+                  }
+                }}
+                className="shrink-0 rounded-full border border-red-300 bg-red-600 px-6 py-3 text-xs font-bold uppercase tracking-wider text-white shadow-xs hover:bg-red-700 transition"
+              >
+                🧹 Clear All Demo Data
+              </button>
+            )}
           </div>
         </section>
 

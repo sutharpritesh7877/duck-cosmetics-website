@@ -1,4 +1,14 @@
-export type CategoryName = "Baby Care" | "Face Wash" | "Vapor Rub" | "Ortho Pain Oil" | "Cosmetics";
+export type CategoryName = "Baby Care" | "Face Wash" | "Vapor Rub" | "Ortho Pain Oil" | "Cosmetics" | (string & {});
+
+export interface CategoryMeta {
+  id?: string;
+  name: string;
+  tagline: string;
+  image: string;
+  tone?: string;
+  displayOrder: number;
+  active: boolean;
+}
 
 export type OrderStatus =
   | "New"
@@ -71,6 +81,7 @@ export interface ProductItem {
   hsnCode: string;
   gstRate: number; // e.g. 18 for 18%
   image: string;
+  images?: string[]; // Multiple gallery images (Front, Back, Texture, Pack, In Use)
   badge?: string;
   status: "Active" | "Draft" | "Archived";
   createdAt: string;
@@ -399,4 +410,5 @@ export interface StoreSettings {
     token: string;
     active: boolean;
   };
+  customCategories?: CategoryMeta[];
 }

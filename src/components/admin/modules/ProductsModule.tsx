@@ -1,13 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ProductItem, CategoryName } from "../../../types";
 import { db } from "../../../backend/db";
 import { authService } from "../../../backend/authService";
+import { DEFAULT_CATEGORIES_META } from "./CategoriesModule";
 
-const CATEGORIES: CategoryName[] = ["Baby Care", "Face Wash", "Vapor Rub", "Ortho Pain Oil", "Cosmetics"];
+const GALLERY_SLOT_LABELS = [
+  "1. Front / Primary View",
+  "2. Back / Ingredients & Info",
+  "3. Texture / Close-up Swatch",
+  "4. Outer Box & Packaging",
+  "5. In-Use / Lifestyle",
+];
 
 export function ProductsModule() {
   const currentStaff = authService.getCurrentUser();
-  const products = db.getProducts();
+  const [products, setProducts] = useState<ProductItem[]>(db.getProducts());
+  const [categories, setCategories] = useState<string[]>(() => {
+    const s = db.getSettings();
+    if (s.customCategories && s.customCategories.length > 0) {
+      return s.customCategories.map((c) => c.name);
+    }
+    return DEFAULT_CATEGORIES_META.map((c) => c.name);
+  });
 
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
@@ -15,66 +29,119 @@ export function ProductsModule() {
   const [editProduct, setEditProduct] = useState<ProductItem | null>(null);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
-  const [imagePreview, setImagePreview] = useState<string>("");
+  
+  // Multiple images state
+  const [imagesList, setImagesList] = useState<string[]>([]);
+  const [newImageUrl, setNewImageUrl] = useState<string>("");
   const [imageTab, setImageTab] = useState<"upload" | "url">("upload");
 
-  const canEdit = authService.can("products:update", currentStaff);
-  const canCreate = authService.can("products:create", currentStaff);
-  const canDelete = authService.can("products:delete", currentStaff);
+  const canEdit = authService.can("products:update", currentStaff) || currentStaff.role === "Owner / Super Admin";
+  const canCreate = authService.can("products:create", currentStaff) || currentStaff.role === "Owner / Super Admin";
+  const canDelete = authService.can("products:delete", currentStaff) || currentStaff.role === "Owner / Super Admin";
+
+  useEffect(() => {
+    return db.subscribe(() => {
+      setProducts([...db.getProducts()]);
+      const s = db.getSettings();
+      if (s.customCategories && s.customCategories.length > 0) {
+        setCategories(s.customCategories.map((c) => c.name));
+      }
+    });
+  }, []);
 
   const handleOpenEdit = (product: ProductItem) => {
     setEditProduct(product);
-    setImagePreview(product.image || "");
-    setImageTab(product.image?.startsWith("data:") ? "upload" : "upload");
+    const existing = product.images && product.images.length > 0
+      ? [...product.images]
+      : (product.image ? [product.image] : []);
+    setImagesList(existing);
+    setNewImageUrl("");
+    setImageTab("upload");
     setIsNewModalOpen(true);
   };
 
   const handleOpenNew = () => {
     setEditProduct(null);
-    setImagePreview("");
+    setImagesList([]);
+    setNewImageUrl("");
     setImageTab("upload");
     setIsNewModalOpen(true);
   };
 
-  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      alert("Please select a valid image file (PNG, JPG, WEBP).");
+  const compressAndAddImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 900;
+          let width = img.width;
+          let height = img.height;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL("image/webp", 0.88));
+          } else {
+            resolve(event.target?.result as string);
+          }
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleMultipleImageFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const validFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (validFiles.length === 0) {
+      alert("Please select valid image files (PNG, JPG, WEBP).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        // Auto-compress to max 900px wide
-        const maxDim = 900;
-        let width = img.width;
-        let height = img.height;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL("image/webp", 0.88);
-          setImagePreview(compressed);
-        } else {
-          setImagePreview(event.target?.result as string);
-        }
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+
+    const compressedResults = await Promise.all(validFiles.map(compressAndAddImage));
+    setImagesList((prev) => {
+      const combined = [...prev, ...compressedResults];
+      return combined.slice(0, 5); // Max 5 gallery slots
+    });
+    e.target.value = "";
+  };
+
+  const handleAddImageUrl = () => {
+    const trimmed = newImageUrl.trim();
+    if (!trimmed) return;
+    if (imagesList.length >= 5) {
+      alert("You can add up to 5 images per product (Front, Back, Texture, Packaging, In-Use).");
+      return;
+    }
+    setImagesList((prev) => [...prev, trimmed]);
+    setNewImageUrl("");
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImagesList((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSetPrimaryImage = (index: number) => {
+    setImagesList((prev) => {
+      const copy = [...prev];
+      const [selected] = copy.splice(index, 1);
+      return [selected, ...copy];
+    });
   };
 
   const filtered = products.filter((p) => {
@@ -98,12 +165,15 @@ export function ProductsModule() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
 
+    const primaryImg = imagesList[0] || (formData.get("image") as string) || "https://images.unsplash.com/photo-1686831889383-290d9bab10e6?w=600";
+    const galleryImages = imagesList.length > 0 ? imagesList : [primaryImg];
+
     const productData: ProductItem = {
       id: editProduct?.id || `prd-${Date.now()}`,
-      name: formData.get("name") as string,
+      name: (formData.get("name") as string).trim(),
       category: formData.get("category") as CategoryName,
-      sku: formData.get("sku") as string,
-      detail: formData.get("detail") as string,
+      sku: (formData.get("sku") as string).trim(),
+      detail: (formData.get("detail") as string).trim(),
       mrp: Number(formData.get("mrp")),
       price: Number(formData.get("price")),
       costPrice: Number(formData.get("costPrice") || 0),
@@ -112,15 +182,16 @@ export function ProductsModule() {
       lowStockThreshold: Number(formData.get("lowStockThreshold") || 10),
       hsnCode: (formData.get("hsnCode") as string) || "33049910",
       gstRate: Number(formData.get("gstRate") || 18),
-      image: imagePreview || (formData.get("image") as string) || "https://images.unsplash.com/photo-1686831889383-290d9bab10e6?w=600",
-      badge: (formData.get("badge") as string) || undefined,
+      image: primaryImg,
+      images: galleryImages,
+      badge: (formData.get("badge") as string).trim() || undefined,
       status: (formData.get("status") as any) || "Active",
       createdAt: editProduct?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     db.saveProduct(productData, currentStaff.name, currentStaff.role);
-    setToastMessage(`Product "${productData.name}" saved successfully with updated image and details.`);
+    setToastMessage(`Product "${productData.name}" saved with ${galleryImages.length} image(s). Changes are now live on website.`);
     setEditProduct(null);
     setIsNewModalOpen(false);
   };
@@ -138,6 +209,9 @@ export function ProductsModule() {
         <div>
           <span className="text-[10px] font-bold tracking-[0.16em] text-purple uppercase">Product Catalog</span>
           <h2 className="font-display text-3xl font-semibold text-purple-dark">All Products ({products.length})</h2>
+          <p className="text-xs text-ink/50 mt-1">
+            Manage your store catalog, multiple product gallery photos, stock levels, and Indian tax compliance.
+          </p>
         </div>
         {canCreate && (
           <button
@@ -158,21 +232,21 @@ export function ProductsModule() {
       {/* Filters Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-purple/10 bg-white p-4 shadow-sm">
         <input
-          type="text"
-          placeholder="Search products by title, SKU, category..."
+          type="search"
+          placeholder="Search product by name, SKU, category..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="min-w-[16rem] flex-1 rounded-xl border border-purple/15 bg-canvas px-3 py-2 text-xs outline-none focus:border-purple"
+          className="w-full sm:w-72 rounded-xl border border-purple/15 px-3 py-2 text-xs outline-none focus:border-purple"
         />
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-xl border border-purple/15 bg-canvas px-3 py-2 text-xs font-semibold outline-none"
+            className="rounded-xl border border-purple/15 bg-canvas px-3 py-2 text-xs font-medium text-ink outline-none"
           >
             <option value="All">All Categories</option>
-            {CATEGORIES.map((c) => (
+            {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
@@ -180,23 +254,23 @@ export function ProductsModule() {
           <select
             value={stockFilter}
             onChange={(e) => setStockFilter(e.target.value)}
-            className="rounded-xl border border-purple/15 bg-canvas px-3 py-2 text-xs font-semibold outline-none"
+            className="rounded-xl border border-purple/15 bg-canvas px-3 py-2 text-xs font-medium text-ink outline-none"
           >
             <option value="All">All Stock Levels</option>
-            <option value="in">Normal Stock</option>
-            <option value="low">Low Stock Warning</option>
+            <option value="in">In Stock</option>
+            <option value="low">Low Stock Alerts</option>
             <option value="out">Out of Stock</option>
           </select>
         </div>
       </div>
 
       {/* Products Table */}
-      <div className="overflow-hidden rounded-2xl border border-purple/10 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-3xl border border-purple/10 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[55rem] border-collapse text-left">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-purple/10 bg-canvas/70 text-[9px] font-bold tracking-wider text-ink/50 uppercase">
-                <th className="px-4 py-3.5">Product</th>
+              <tr className="border-b border-purple/10 bg-canvas/50 text-[10px] font-bold tracking-wider text-purple uppercase">
+                <th className="px-4 py-3.5">Product & Images</th>
                 <th className="px-4 py-3.5">SKU / HSN</th>
                 <th className="px-4 py-3.5">Category</th>
                 <th className="px-4 py-3.5">MRP / Selling</th>
@@ -208,138 +282,139 @@ export function ProductsModule() {
               </tr>
             </thead>
             <tbody className="divide-y divide-purple/5 text-xs">
-              {filtered.map((product) => {
-                const isLow = product.stock <= product.lowStockThreshold;
-                const isOut = product.stock === 0;
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-12 text-center text-ink/40">
+                    No products found. Click "+ Add New Product" to create your first product.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((product) => {
+                  const isLow = product.stock <= product.lowStockThreshold;
+                  const isOut = product.stock === 0;
+                  const totalImages = (product.images && product.images.length > 0) ? product.images.length : (product.image ? 1 : 0);
 
-                return (
-                  <tr key={product.id} className="transition hover:bg-canvas/30">
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          className="h-12 w-12 rounded-xl object-cover border border-purple/10 bg-canvas p-1"
-                        />
-                        <div>
-                          <strong className="block font-semibold text-ink">{product.name}</strong>
-                          <span className="text-[10px] text-ink/45 line-clamp-1">{product.detail}</span>
-                          {product.badge && (
-                            <span className="mt-0.5 inline-block rounded bg-purple/10 px-1.5 py-0.5 text-[8px] font-bold text-purple uppercase">
-                              {product.badge}
-                            </span>
-                          )}
+                  return (
+                    <tr key={product.id} className="transition hover:bg-canvas/30">
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <img
+                              src={product.image || product.images?.[0]}
+                              alt={product.name}
+                              className="h-12 w-12 rounded-xl object-cover border border-purple/10 bg-canvas"
+                            />
+                            {totalImages > 1 && (
+                              <span className="absolute -bottom-1 -right-1 rounded-full bg-purple px-1.5 py-0.2 text-[8px] font-bold text-white shadow-xs">
+                                {totalImages} imgs
+                              </span>
+                            )}
+                          </div>
+                          <div>
+                            <strong className="block font-semibold text-ink">{product.name}</strong>
+                            <span className="text-[10px] text-ink/45 line-clamp-1">{product.detail}</span>
+                            {product.badge && (
+                              <span className="mt-0.5 inline-block rounded bg-purple/10 px-1.5 py-0.5 text-[8px] font-bold text-purple uppercase">
+                                {product.badge}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 font-mono text-[11px]">
-                      <div>{product.sku}</div>
-                      <small className="text-ink/40">HSN: {product.hsnCode}</small>
-                    </td>
-                    <td className="px-4 py-3.5 text-ink/65 font-medium">{product.category}</td>
-                    <td className="px-4 py-3.5">
-                      <span className="text-xs text-ink/40 line-through">₹{product.mrp}</span>
-                      <strong className="block text-sm text-purple-dark">₹{product.price}</strong>
-                    </td>
-                    <td className="px-4 py-3.5 text-ink/60">₹{product.costPrice}</td>
-                    <td className="px-4 py-3.5">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase ${
-                          isOut ? "bg-red-100 text-red-700" : isLow ? "bg-amber-100 text-amber-800" : "bg-mint text-purple-dark"
-                        }`}
-                      >
-                        {isOut ? "Out of Stock" : isLow ? `Low (${product.stock})` : `${product.stock} units`}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-ink/60 font-medium">{product.gstRate}%</td>
-                    <td className="px-4 py-3.5">
-                      <span className="rounded-full bg-canvas px-2.5 py-0.5 text-[9px] font-bold uppercase text-purple-dark">
-                        {product.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1">
-                      {canEdit && (
-                        <button
-                          onClick={() => handleOpenEdit(product)}
-                          className="rounded-full bg-purple/10 px-3 py-1 text-[10px] font-bold text-purple uppercase transition hover:bg-purple hover:text-white"
+                      </td>
+                      <td className="px-4 py-3.5 font-mono text-[11px]">
+                        <div>{product.sku}</div>
+                        <small className="text-ink/40">HSN: {product.hsnCode}</small>
+                      </td>
+                      <td className="px-4 py-3.5 text-ink/65 font-medium">{product.category}</td>
+                      <td className="px-4 py-3.5">
+                        <span className="text-xs text-ink/40 line-through">₹{product.mrp}</span>
+                        <strong className="block text-sm text-purple-dark">₹{product.price}</strong>
+                      </td>
+                      <td className="px-4 py-3.5 text-ink/60">₹{product.costPrice}</td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase ${
+                            isOut ? "bg-red-100 text-red-700" : isLow ? "bg-amber-100 text-amber-800" : "bg-mint text-purple-dark"
+                          }`}
                         >
-                          Edit
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          onClick={() => handleDelete(product.id, product.name)}
-                          className="rounded-full border border-red-200 px-3 py-1 text-[10px] font-bold text-red-600 uppercase transition hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                          {isOut ? "Out of Stock" : isLow ? `Low (${product.stock})` : `${product.stock} units`}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-ink/60 font-medium">{product.gstRate}%</td>
+                      <td className="px-4 py-3.5">
+                        <span className="rounded-full bg-canvas px-2.5 py-0.5 text-[9px] font-bold uppercase text-purple-dark">
+                          {product.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1">
+                        {canEdit && (
+                          <button
+                            onClick={() => handleOpenEdit(product)}
+                            className="rounded-full bg-purple/10 px-3 py-1 text-[10px] font-bold text-purple uppercase transition hover:bg-purple hover:text-white"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDelete(product.id, product.name)}
+                            className="rounded-full border border-red-200 px-3 py-1 text-[10px] font-bold text-red-600 uppercase transition hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Product Form Modal (Create or Edit) */}
-      {(isNewModalOpen || editProduct) && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-          onClick={() => {
-            setIsNewModalOpen(false);
-            setEditProduct(null);
-          }}
-        >
+      {/* Product Edit / Create Modal */}
+      {isNewModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setIsNewModalOpen(false)}>
           <form
             onSubmit={handleSaveProduct}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+            className="w-full max-w-3xl rounded-3xl bg-white p-6 md:p-8 shadow-2xl max-h-[92vh] overflow-y-auto space-y-6"
           >
-            <div className="flex items-center justify-between border-b border-purple/10 pb-3">
-              <h3 className="font-display text-xl font-bold text-purple-dark">
-                {editProduct ? `Edit Product: ${editProduct.name}` : "Add New Product"}
+            <div>
+              <span className="text-[10px] font-bold tracking-[0.16em] text-purple uppercase">Catalog Editor</span>
+              <h3 className="font-display text-2xl font-bold text-purple-dark">
+                {editProduct ? `Edit: ${editProduct.name}` : "Add New Product"}
               </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsNewModalOpen(false);
-                  setEditProduct(null);
-                }}
-                className="grid h-8 w-8 place-items-center rounded-full bg-canvas text-ink/50"
-              >
-                ✕
-              </button>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 text-xs">
               <label className="sm:col-span-2 block">
-                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Product Name</span>
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Product Name *</span>
                 <input
                   name="name"
                   defaultValue={editProduct?.name || ""}
                   required
                   placeholder="e.g. Duck Ortho Pain Oil"
-                  className="w-full rounded-xl border border-purple/15 p-2.5 outline-none"
+                  className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-semibold text-sm"
                 />
               </label>
 
               <label className="block">
-                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Category</span>
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Category *</span>
                 <select
                   name="category"
-                  defaultValue={editProduct?.category || "Ortho Pain Oil"}
-                  className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none"
+                  defaultValue={editProduct?.category || categories[0] || "Baby Care"}
+                  className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none font-medium"
                 >
-                  {CATEGORIES.map((c) => (
+                  {categories.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </label>
 
               <label className="block">
-                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">SKU</span>
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">SKU *</span>
                 <input
                   name="sku"
                   defaultValue={editProduct?.sku || `DUCK-${Math.random().toString(36).substring(2, 6).toUpperCase()}`}
@@ -359,7 +434,7 @@ export function ProductsModule() {
               </label>
 
               <label className="block">
-                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">MRP (₹)</span>
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">MRP (₹) *</span>
                 <input
                   type="number"
                   name="mrp"
@@ -370,13 +445,13 @@ export function ProductsModule() {
               </label>
 
               <label className="block">
-                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Selling Price (₹)</span>
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Selling Price (₹) *</span>
                 <input
                   type="number"
                   name="price"
                   defaultValue={editProduct?.price || 449}
                   required
-                  className="w-full rounded-xl border border-purple/15 p-2.5 outline-none"
+                  className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-bold text-purple-dark"
                 />
               </label>
 
@@ -391,7 +466,7 @@ export function ProductsModule() {
               </label>
 
               <label className="block">
-                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Current Stock</span>
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Current Stock *</span>
                 <input
                   type="number"
                   name="stock"
@@ -438,79 +513,126 @@ export function ProductsModule() {
                 <select
                   name="status"
                   defaultValue={editProduct?.status || "Active"}
-                  className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none"
+                  className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none font-semibold"
                 >
-                  <option value="Active">Active</option>
-                  <option value="Draft">Draft</option>
+                  <option value="Active">Active (Visible on website)</option>
+                  <option value="Draft">Draft (Admin only)</option>
                   <option value="Archived">Archived</option>
                 </select>
               </label>
 
-              {/* Product Image Upload Section */}
-              <div className="sm:col-span-2 rounded-2xl border border-purple/15 bg-canvas/60 p-4 space-y-3">
+              {/* Multiple Product Images Gallery Manager */}
+              <div className="sm:col-span-2 rounded-2xl border border-purple/15 bg-canvas/60 p-4 space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="block font-bold uppercase text-purple text-[9px]">Product Image</span>
+                  <div>
+                    <span className="block font-bold uppercase text-purple text-[9px]">
+                      Multiple Product Images Gallery ({imagesList.length}/5)
+                    </span>
+                    <p className="text-[10px] text-ink/50">
+                      Upload multiple images to fill the 5 storefront gallery views: Front, Back, Texture, Pack, and In-Use.
+                    </p>
+                  </div>
                   <div className="flex rounded-full border border-purple/20 bg-white p-0.5 text-[10px]">
                     <button
                       type="button"
                       onClick={() => setImageTab("upload")}
                       className={`rounded-full px-3 py-1 font-bold transition ${imageTab === "upload" ? "bg-purple text-white shadow-xs" : "text-ink/60 hover:text-purple"}`}
                     >
-                      📁 Upload File from Computer
+                      📁 Upload Files
                     </button>
                     <button
                       type="button"
                       onClick={() => setImageTab("url")}
                       className={`rounded-full px-3 py-1 font-bold transition ${imageTab === "url" ? "bg-purple text-white shadow-xs" : "text-ink/60 hover:text-purple"}`}
                     >
-                      🔗 Paste Image Link
+                      🔗 Add by URL
                     </button>
                   </div>
                 </div>
 
-                {imagePreview && (
-                  <div className="flex items-center gap-4 rounded-xl border border-purple/15 bg-white p-3 shadow-xs">
-                    <img src={imagePreview} alt="Product Preview" className="h-16 w-16 rounded-xl object-cover border border-purple/10 bg-canvas" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-ink">Active Product Image</p>
-                      <p className="text-[10px] text-ink/40 truncate">
-                        {imagePreview.startsWith("data:") ? "✓ Direct File Upload (Auto-optimized WebP)" : imagePreview}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setImagePreview("")}
-                      className="rounded-full bg-red-50 px-3 py-1 text-[10px] font-bold text-red-600 hover:bg-red-100 uppercase"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
-
+                {/* Upload Area */}
                 {imageTab === "upload" ? (
-                  <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-purple/30 bg-white p-6 cursor-pointer hover:border-purple hover:bg-lilac/20 transition text-center group">
+                  <label className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-purple/30 bg-white p-5 cursor-pointer hover:border-purple hover:bg-lilac/20 transition text-center group">
                     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-8 w-8 text-purple group-hover:scale-110 transition" fill="none">
                       <path d="M12 16V4M7 9l5-5 5 5M4 20h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    <span className="mt-2 text-xs font-bold text-purple-dark">Click to browse or drop an image file here</span>
-                    <span className="mt-1 text-[10px] text-ink/40">Supports PNG, JPG, JPEG, WEBP (auto-compressed for ultra-fast store loading)</span>
+                    <span className="mt-2 text-xs font-bold text-purple-dark">
+                      Click to browse or drop multiple images here (Select 1 to 5 files)
+                    </span>
+                    <span className="mt-1 text-[10px] text-ink/40">
+                      PNG, JPG, JPEG, WEBP · Auto-compressed for ultra-fast loading
+                    </span>
                     <input
                       type="file"
+                      multiple
                       accept="image/png, image/jpeg, image/jpg, image/webp, image/avif"
-                      onChange={handleImageFileUpload}
+                      onChange={handleMultipleImageFiles}
                       className="hidden"
                     />
                   </label>
                 ) : (
-                  <div>
+                  <div className="flex gap-2">
                     <input
-                      name="image"
-                      value={imagePreview}
-                      onChange={(e) => setImagePreview(e.target.value)}
-                      placeholder="https://images.unsplash.com/photo-..."
-                      className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-mono text-[11px] bg-white"
+                      type="url"
+                      value={newImageUrl}
+                      onChange={(e) => setNewImageUrl(e.target.value)}
+                      placeholder="Paste image URL (https://...)"
+                      className="flex-1 rounded-xl border border-purple/15 p-2.5 outline-none font-mono text-[11px] bg-white"
                     />
-                    <small className="block mt-1 text-[10px] text-ink/40">Paste a direct image link from your CDN or image host.</small>
+                    <button
+                      type="button"
+                      onClick={handleAddImageUrl}
+                      className="rounded-xl bg-purple px-4 py-2 text-xs font-bold text-white uppercase hover:bg-purple-dark"
+                    >
+                      Add Image
+                    </button>
+                  </div>
+                )}
+
+                {/* Gallery Slots Preview Grid */}
+                {imagesList.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="block text-[9px] font-bold uppercase text-purple">
+                      Configured Gallery Views (First image is storefront primary):
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                      {imagesList.map((imgUrl, idx) => (
+                        <div
+                          key={idx}
+                          className="group relative rounded-xl border border-purple/20 bg-white p-2 flex flex-col justify-between shadow-xs"
+                        >
+                          <div className="relative aspect-square overflow-hidden rounded-lg bg-canvas">
+                            <img src={imgUrl} alt={`Slot ${idx + 1}`} className="h-full w-full object-cover" />
+                            {idx === 0 && (
+                              <span className="absolute top-1 left-1 rounded bg-purple px-1.5 py-0.5 text-[8px] font-bold text-white uppercase shadow-xs">
+                                Primary
+                              </span>
+                            )}
+                          </div>
+                          <span className="mt-1.5 block text-[9px] font-bold text-purple-dark truncate">
+                            {GALLERY_SLOT_LABELS[idx] || `Image ${idx + 1}`}
+                          </span>
+                          <div className="mt-1 flex items-center justify-between border-t border-purple/10 pt-1 text-[9px]">
+                            {idx > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleSetPrimaryImage(idx)}
+                                className="font-bold text-purple hover:underline"
+                              >
+                                Set Main
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveImage(idx)}
+                              className="font-bold text-red-600 hover:text-red-800 ml-auto"
+                            >
+                              ✕ Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -539,9 +661,9 @@ export function ProductsModule() {
               </button>
               <button
                 type="submit"
-                className="rounded-full bg-purple px-6 py-2 text-xs font-bold tracking-wider text-white uppercase hover:bg-purple-dark"
+                className="rounded-full bg-purple px-6 py-2.5 text-xs font-bold tracking-wider text-white uppercase hover:bg-purple-dark shadow-sm"
               >
-                Save Product
+                Save Product & Sync to Website
               </button>
             </div>
           </form>

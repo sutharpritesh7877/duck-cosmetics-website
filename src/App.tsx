@@ -8,7 +8,7 @@ import { StaffLoginModal } from "./components/admin/StaffLoginModal";
 import { Order, ProductItem, PaymentMethod } from "./types";
 import { sanitizeText, isValidEmail, isValidPhone, isValidPinCode } from "./utils/sanitize";
 
-type Category = "Baby Care" | "Face Wash" | "Vapor Rub" | "Ortho Pain Oil" | "Cosmetics";
+type Category = string;
 
 type Product = {
   id?: string;
@@ -17,6 +17,7 @@ type Product = {
   detail: string;
   price: string;
   image: string;
+  images?: string[];
   badge?: string;
   stock?: number;
   lowStockThreshold?: number;
@@ -29,7 +30,7 @@ type ChatMessage = { role: "assistant" | "user"; text: string };
 type AccountScreen = "login" | "signup" | "verify" | "profile" | "orders";
 type PolicyScreen = "privacy" | "terms" | "shipping" | "returns" | "faq";
 
-const categories: { name: Category; line: string; image: string; tone: string }[] = [
+const DEFAULT_CATEGORIES: { name: Category; line: string; image: string; tone: string }[] = [
   {
     name: "Baby Care",
     line: "Gentle from day one",
@@ -155,6 +156,27 @@ function BagIcon() {
 }
 
 function ProductVisual({ product, compact = false, view = 0 }: { product: Product; compact?: boolean; view?: number }) {
+  const activeImage = (product.images && product.images[view]) || product.images?.[0] || product.image;
+
+  if (activeImage && activeImage.trim().length > 5) {
+    return (
+      <div
+        className={`relative h-full w-full overflow-hidden flex items-center justify-center bg-canvas/60 ${compact ? "p-1" : "p-3"}`}
+        role="img"
+        aria-label={`${product.name} ${["front label", "back label", "texture", "packaging", "in use"][view] || "product view"}`}
+      >
+        <img
+          src={activeImage}
+          alt={product.name}
+          className={`h-full w-full object-cover rounded-2xl transition duration-500 ${compact ? "" : "group-hover:scale-105"}`}
+          onError={(e) => {
+            (e.target as HTMLElement).style.display = "none";
+          }}
+        />
+      </div>
+    );
+  }
+
   const productClass = {
     "Baby Care": "mock-baby",
     "Face Wash": "mock-face",
@@ -739,6 +761,19 @@ export default function App() {
     });
   }, []);
 
+  // Dynamic Categories from storeSettings.customCategories
+  const categories: { name: Category; line: string; image: string; tone: string }[] =
+    storeSettings.customCategories && storeSettings.customCategories.length > 0
+      ? storeSettings.customCategories
+          .filter((c) => c.active !== false)
+          .map((c) => ({
+            name: c.name,
+            line: c.tagline,
+            image: c.image,
+            tone: c.tone || "bg-lilac",
+          }))
+      : DEFAULT_CATEGORIES;
+
   // Audit Item 1: Product Sync - Only active products appear on storefront shelves
   const storeCatalog: Product[] = currentProducts
     .filter((p) => p.status === "Active")
@@ -749,6 +784,7 @@ export default function App() {
       detail: p.detail,
       price: `₹${p.price}`,
       image: p.image,
+      images: p.images && p.images.length > 0 ? p.images : (p.image ? [p.image] : []),
       badge: p.badge,
       stock: p.stock,
       lowStockThreshold: p.lowStockThreshold,
@@ -774,7 +810,7 @@ export default function App() {
   ]);
 
   const visibleProducts =
-    selected === "All" ? storeCatalog.slice(0, 8) : storeCatalog.filter((product) => product.category === selected);
+    selected === "All" ? storeCatalog : storeCatalog.filter((product) => product.category === selected);
 
   const cosmeticsInCart = cartItems.some((product) => product.category === "Cosmetics");
   const cartCount = cartItems.length + (freeWashAdded && promoActive ? 1 : 0);
@@ -1342,7 +1378,7 @@ export default function App() {
             <p className="text-sm text-ink/55">{visibleProducts.length} products available</p>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-2">
-            {(["All", ...categories.map((category) => category.name)] as const).map((filter) => (
+            {(["All", ...categories.map((category) => category.name)]).map((filter) => (
               <button
                 key={filter}
                 onClick={() => setSelected(filter)}
@@ -1353,50 +1389,67 @@ export default function App() {
             ))}
           </div>
         </div>
-        <div className={`grid grid-cols-1 gap-x-5 gap-y-10 sm:grid-cols-2 ${visibleProducts.length <= 2 ? "mx-auto max-w-3xl" : "lg:grid-cols-4"}`}>
-          {visibleProducts.map((product) => {
-            const isLowStock = (product.stock ?? 10) <= (product.lowStockThreshold ?? 10) && (product.stock ?? 10) > 0;
-            const isOutOfStock = (product.stock ?? 10) === 0;
 
-            return (
-              <article
-                key={product.name}
-                className="group cursor-pointer"
-                onClick={() => openProduct(product)}
-              >
-                <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-canvas">
-                  <div className="h-full w-full transition duration-700 group-hover:scale-105">
-                    <ProductVisual product={product} />
+        {visibleProducts.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-purple/20 bg-canvas/40 p-12 text-center max-w-xl mx-auto my-8">
+            <span className="inline-block text-3xl mb-3">📦</span>
+            <h3 className="font-display text-2xl font-semibold text-purple-dark">Catalog is being prepared</h3>
+            <p className="mt-2 text-xs text-ink/60">
+              No products found in this category right now. Add your products in the Admin Dashboard to have them appear here immediately.
+            </p>
+            <button
+              onClick={() => setStaffLoginOpen(true)}
+              className="mt-5 rounded-full bg-purple px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-white hover:bg-purple-dark transition shadow-sm"
+            >
+              Open Admin Dashboard
+            </button>
+          </div>
+        ) : (
+          <div className={`grid grid-cols-1 gap-x-5 gap-y-10 sm:grid-cols-2 ${visibleProducts.length <= 2 ? "mx-auto max-w-3xl" : "lg:grid-cols-4"}`}>
+            {visibleProducts.map((product) => {
+              const isLowStock = (product.stock ?? 10) <= (product.lowStockThreshold ?? 10) && (product.stock ?? 10) > 0;
+              const isOutOfStock = (product.stock ?? 10) === 0;
+
+              return (
+                <article
+                  key={product.name}
+                  className="group cursor-pointer"
+                  onClick={() => openProduct(product)}
+                >
+                  <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-canvas">
+                    <div className="h-full w-full transition duration-700 group-hover:scale-105">
+                      <ProductVisual product={product} />
+                    </div>
+                    {product.badge && <span className="absolute top-3 left-3 rounded-full bg-white px-3 py-1.5 text-[9px] font-bold tracking-wider text-purple uppercase">{product.badge}</span>}
+                    {isLowStock && <span className="absolute top-3 left-3 rounded-full bg-amber-500 px-3 py-1.5 text-[9px] font-bold tracking-wider text-white uppercase">Only {product.stock} left</span>}
+                    {isOutOfStock && <span className="absolute top-3 left-3 rounded-full bg-red-600 px-3 py-1.5 text-[9px] font-bold tracking-wider text-white uppercase">Out of Stock</span>}
+                    <span className="absolute top-3 right-3 rounded-full bg-purple px-3 py-1.5 text-[9px] font-bold tracking-wider text-white uppercase shadow-lg">
+                      View details
+                    </span>
+                    <button
+                      disabled={isOutOfStock}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!isOutOfStock) openProduct(product);
+                      }}
+                      className="absolute right-3 bottom-3 left-3 rounded-full bg-purple px-4 py-3 text-[10px] font-bold tracking-wider text-white uppercase opacity-100 transition hover:bg-purple-dark md:translate-y-2 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 disabled:opacity-40"
+                    >
+                      {isOutOfStock ? "Out of Stock" : "Product details"}
+                    </button>
                   </div>
-                  {product.badge && <span className="absolute top-3 left-3 rounded-full bg-white px-3 py-1.5 text-[9px] font-bold tracking-wider text-purple uppercase">{product.badge}</span>}
-                  {isLowStock && <span className="absolute top-3 left-3 rounded-full bg-amber-500 px-3 py-1.5 text-[9px] font-bold tracking-wider text-white uppercase">Only {product.stock} left</span>}
-                  {isOutOfStock && <span className="absolute top-3 left-3 rounded-full bg-red-600 px-3 py-1.5 text-[9px] font-bold tracking-wider text-white uppercase">Out of Stock</span>}
-                  <span className="absolute top-3 right-3 rounded-full bg-purple px-3 py-1.5 text-[9px] font-bold tracking-wider text-white uppercase shadow-lg">
-                    View details
-                  </span>
-                  <button
-                    disabled={isOutOfStock}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (!isOutOfStock) openProduct(product);
-                    }}
-                    className="absolute right-3 bottom-3 left-3 rounded-full bg-purple px-4 py-3 text-[10px] font-bold tracking-wider text-white uppercase opacity-100 transition hover:bg-purple-dark md:translate-y-2 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 disabled:opacity-40"
-                  >
-                    {isOutOfStock ? "Out of Stock" : "Product details"}
-                  </button>
-                </div>
-                <div className="pt-4">
-                  <p className="text-[9px] font-bold tracking-[0.14em] text-purple uppercase">{product.category}</p>
-                  <div className="mt-1 flex justify-between gap-3">
-                    <h3 className="font-display text-lg leading-tight font-semibold md:text-xl">{product.name}</h3>
-                    <p className="text-sm font-bold text-purple-dark">{product.price}</p>
+                  <div className="pt-4">
+                    <p className="text-[9px] font-bold tracking-[0.14em] text-purple uppercase">{product.category}</p>
+                    <div className="mt-1 flex justify-between gap-3">
+                      <h3 className="font-display text-lg leading-tight font-semibold md:text-xl">{product.name}</h3>
+                      <p className="text-sm font-bold text-purple-dark">{product.price}</p>
+                    </div>
+                    <p className="mt-2 text-xs text-ink/50">{product.detail}</p>
                   </div>
-                  <p className="mt-2 text-xs text-ink/50">{product.detail}</p>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Cart Drawer */}
