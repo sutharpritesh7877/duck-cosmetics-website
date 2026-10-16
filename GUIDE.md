@@ -270,20 +270,38 @@ To allow staff to upload product images directly from their device:
 
 ---
 
-## 6. Step 5: Connect Custom Domain
+---
 
-To connect `duckcosmetics.in` to your Vercel deployment:
-1. In your Vercel Project Dashboard, go to **Settings** $\rightarrow$ **Domains**.
-2. Enter your domain: `duckcosmetics.in` and click **Add**.
-3. Vercel will ask you to add `www.duckcosmetics.in` as an automatic redirect. Click **Add**.
-4. Log into your domain registrar (GoDaddy, Namecheap, Hostinger, etc.) and update your DNS records:
-   - **Type A**:
-     - Name: `@`
-     - Value: `76.76.21.21`
-   - **Type CNAME**:
-     - Name: `www`
-     - Value: `cname.vercel-dns.com`
-5. Vercel automatically issues a free, auto-renewing **SSL/TLS Certificate (HTTPS)** within 15 minutes.
+## 6. Step 5: Complete Custom Domain Setup Guide (Vercel)
+
+Connecting your custom domain (e.g. `duckcosmetics.in`, `duckcosmetics.com`, or any domain) to your live Vercel deployment:
+
+### 6.1 Add Domain in Vercel
+1. Log into your [Vercel Dashboard](https://vercel.com/dashboard).
+2. Select your project: **Duck-cosmetics-website**.
+3. Click on the **Settings** tab at the top.
+4. In the left navigation, select **Domains**.
+5. In the input field, enter your domain name (e.g. `duckcosmetics.in`) and click **Add**.
+6. When prompted, select **"Add www.yourdomain.in and redirect yourdomain.in to it"** (Recommended for best SEO and browser compatibility).
+
+### 6.2 Configure DNS Records at Domain Registrar
+Log into wherever you purchased your domain (GoDaddy, Hostinger, Namecheap, BigRock, or Cloudflare) and open your domain's **DNS Management / DNS Zone**:
+
+| Record Type | Host / Name | Points To / Value | TTL | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **A Record** | `@` | `76.76.21.21` | Auto / 1 Hour | Routes root domain to Vercel Edge Network |
+| **CNAME** | `www` | `cname.vercel-dns.com` | Auto / 1 Hour | Routes www subdomain to Vercel |
+
+#### Provider Specific Instructions:
+- **Hostinger**: Go to *Domains* $\rightarrow$ *Manage* $\rightarrow$ *DNS / Nameservers*. Add an `A` record with name `@` pointing to `76.76.21.21`, and a `CNAME` record with name `www` pointing to `cname.vercel-dns.com`.
+- **GoDaddy**: Go to *Domain Portfolio* $\rightarrow$ click your domain $\rightarrow$ *DNS*. Edit the `@` `A` record to `76.76.21.21` and `www` `CNAME` to `cname.vercel-dns.com`.
+- **Namecheap**: Go to *Domain List* $\rightarrow$ *Advanced DNS*. Add `A Record` for `@` pointing to `76.76.21.21` and `CNAME Record` for `www` pointing to `cname.vercel-dns.com`.
+- **Cloudflare**: In DNS records, set `@` `A` to `76.76.21.21` and `www` `CNAME` to `cname.vercel-dns.com`. Ensure Proxy status is set to **DNS Only (Gray Cloud)** during initial verification.
+
+### 6.3 SSL Certificate & Verification
+- Once DNS records are saved, return to Vercel's Domains page.
+- Vercel will automatically verify the DNS records and issue a free, auto-renewing **Let's Encrypt 256-Bit SSL/TLS Certificate (HTTPS)**.
+- Status will turn to a green checkmark **"Valid Configuration"** (typically within 2 to 15 minutes).
 
 ---
 
@@ -309,21 +327,24 @@ To connect `duckcosmetics.in` to your Vercel deployment:
 
 ---
 
-## 9. Step 8: Admin Security & Staff Login in Production
+## 9. Step 8: Production Admin Security & Master Credentials
 
 In production, regular shoppers will never see or access the Admin OMS:
 
-1. **Hidden Public Header**: The purple "Admin Dashboard" button is hidden in production mode.
-2. **Dedicated Staff Route**: Authorized staff access the dashboard via:
-   - URL: `https://duckcosmetics.in/#admin` or `https://duckcosmetics.in/admin`
-   - Discreet "Staff Portal" link in the footer.
-3. **Staff Login Authentication**:
-   - Access requires employee credentials.
-   - Granular RBAC ensures that staff members only see permitted modules:
-     - *Shipping Staff* only access logistics, dispatches, and labels.
-     - *Packing Staff* only access packing queues and packing slips.
-     - *Finance Staff* handle COD reconciliation and refunds.
-     - Customer sensitive data (phone and email) is masked for unauthorized roles.
+1. **Clean Customer Storefront**:
+   - No administrative buttons appear in the desktop navbar, mobile menu, or product catalog.
+   - All customer forms (sign in, sign up, delivery address) are empty by default for shoppers to fill with their own information.
+2. **Accessing the Super Admin OMS**:
+   - Access URL: Append `/#admin` to your domain (e.g. `https://duckcosmetics.in/#admin`).
+   - Or click the discreet **"Staff Portal"** link in the footer.
+   - Or use keyboard shortcut: **`Ctrl + Alt + A`**.
+3. **Super Admin Production Credentials**:
+   - **Corporate Username / Email**: `sutharpritesh7877@gmail.com`
+   - **Security Password**: `Ram@7877545471`
+4. **Session Security**:
+   - Full 256-Bit encrypted browser session persistence.
+   - One-click **"Sign Out OMS"** button in sidebar and top header to safely lock the portal and return to the storefront.
+   - Tamper-evident Audit Ledger records all logins and status modifications.
 
 ---
 

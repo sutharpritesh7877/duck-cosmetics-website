@@ -69,9 +69,9 @@ export const initialSettings: StoreSettings = {
 export const initialStaff: StaffUser[] = [
   {
     id: "stf-001",
-    name: "Devang Mehta (Owner)",
-    email: "admin@duck.care",
-    phone: "+91 98250 10194",
+    name: "Pritesh Suthar (Owner)",
+    email: "sutharpritesh7877@gmail.com",
+    phone: "+91 78775 45471",
     role: "Owner / Super Admin",
     isActive: true,
     permissions: ["all"],
@@ -951,7 +951,7 @@ export const initialTickets: SupportTicket[] = [
     category: "Wholesale Inquiry",
     priority: "High",
     status: "Open",
-    assignedTo: "Devang Mehta (Owner)",
+    assignedTo: "Pritesh Suthar (Owner)",
     messages: [
       {
         id: "msg-3",

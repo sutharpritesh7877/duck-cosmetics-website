@@ -281,12 +281,12 @@ function AccountPortal({
                   <h1 className="mt-2 font-display text-5xl font-semibold">Sign in to Duck.</h1>
                   <p className="mt-3 text-sm text-ink/50">Access your live orders, addresses, and saved products.</p>
                   <form onSubmit={(event) => { event.preventDefault(); onAuthenticated(); }} className="mt-8 space-y-5">
-                    <label className="block"><span className="mb-2 block text-[9px] font-bold uppercase">Email or mobile number</span><input defaultValue="aarav@example.com" required placeholder="you@example.com" className="checkout-input" /></label>
+                    <label className="block"><span className="mb-2 block text-[9px] font-bold uppercase">Email or mobile number</span><input required placeholder="Enter your email or 10-digit mobile" className="checkout-input" /></label>
                     <label className="block">
                       <span className="mb-2 block text-[9px] font-bold uppercase">Password</span>
-                      <div className="relative"><input defaultValue="password123" required minLength={6} type={showPassword ? "text" : "password"} placeholder="Your password" className="checkout-input pr-16" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute top-1/2 right-4 -translate-y-1/2 text-[9px] font-bold text-purple uppercase">{showPassword ? "Hide" : "Show"}</button></div>
+                      <div className="relative"><input required minLength={6} type={showPassword ? "text" : "password"} placeholder="Enter your password" className="checkout-input pr-16" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute top-1/2 right-4 -translate-y-1/2 text-[9px] font-bold text-purple uppercase">{showPassword ? "Hide" : "Show"}</button></div>
                     </label>
-                    <div className="flex items-center justify-between text-xs"><label className="flex items-center gap-2 text-ink/55"><input type="checkbox" defaultChecked className="accent-purple" /> Remember me</label><button type="button" className="font-semibold text-purple">Forgot password?</button></div>
+                    <div className="flex items-center justify-between text-xs"><label className="flex items-center gap-2 text-ink/55"><input type="checkbox" className="accent-purple" /> Remember me</label><button type="button" className="font-semibold text-purple">Forgot password?</button></div>
                     <button type="submit" className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase">Sign in</button>
                   </form>
                   <p className="mt-7 text-center text-xs text-ink/50">New to Duck? <button onClick={() => setScreen("signup")} className="font-bold text-purple">Create an account</button></p>
@@ -336,8 +336,10 @@ function AccountPortal({
       <div className="mx-auto grid max-w-6xl gap-6 px-5 py-8 lg:grid-cols-[16rem_1fr]">
         <aside className="h-fit rounded-3xl bg-purple-dark p-5 text-white">
           <div className="flex items-center gap-3 border-b border-white/15 pb-5">
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-lilac font-display text-xl font-bold text-purple">AS</span>
-            <div><strong className="text-sm">Aarav Sharma</strong><p className="mt-1 text-[9px] text-white/45">aarav@example.com</p></div>
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-lilac font-display text-xl font-bold text-purple">
+              {custName ? custName.slice(0, 2).toUpperCase() : "DC"}
+            </span>
+            <div><strong className="text-sm">{custName || "Valued Customer"}</strong><p className="mt-1 text-[9px] text-white/45">{custEmail || "Customer Portal"}</p></div>
           </div>
           <nav className="mt-5 space-y-1">
             {["profile", "orders"].map((item) => (
@@ -367,10 +369,10 @@ function AccountPortal({
               <p className="text-[9px] font-bold tracking-wider text-purple uppercase">My account</p>
               <h1 className="mt-2 font-display text-4xl font-semibold">Profile details</h1>
               <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                <label><span className="mb-2 block text-[9px] font-bold uppercase">Full name</span><input defaultValue="Aarav Sharma" className="checkout-input" /></label>
-                <label><span className="mb-2 block text-[9px] font-bold uppercase">Mobile</span><input defaultValue="98765 43210" className="checkout-input" /></label>
-                <label><span className="mb-2 block text-[9px] font-bold uppercase">Email</span><input defaultValue="aarav@example.com" className="checkout-input" /></label>
-                <label><span className="mb-2 block text-[9px] font-bold uppercase">City & State</span><input defaultValue="Ahmedabad, Gujarat" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">Full name</span><input value={custName} onChange={(e) => setCustName(e.target.value)} placeholder="Enter your full name" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">Mobile</span><input value={custPhone} onChange={(e) => setCustPhone(e.target.value)} placeholder="10-digit mobile number" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">Email</span><input value={custEmail} onChange={(e) => setCustEmail(e.target.value)} placeholder="you@example.com" className="checkout-input" /></label>
+                <label><span className="mb-2 block text-[9px] font-bold uppercase">City & State</span><input value={custCity ? `${custCity}, ${custState}` : ""} onChange={(e) => setCustCity(e.target.value)} placeholder="City, State" className="checkout-input" /></label>
               </div>
               <button className="mt-6 rounded-full bg-purple px-7 py-3 text-[10px] font-bold tracking-wider text-white uppercase">Save changes</button>
               <div className="mt-10 grid gap-4 sm:grid-cols-3">
@@ -569,13 +571,13 @@ export default function App() {
   const [checkoutStep, setCheckoutStep] = useState<"address" | "payment" | "confirmed">("address");
   const [paymentMethod, setPaymentMethod] = useState("UPI");
 
-  // Checkout address & order inputs
-  const [custName, setCustName] = useState("Aarav Sharma");
-  const [custPhone, setCustPhone] = useState("9876543210");
-  const [custEmail, setCustEmail] = useState("aarav@example.com");
-  const [custAddress1, setCustAddress1] = useState("Flat 402, Lotus Residency");
-  const [custAddress2, setCustAddress2] = useState("Near Parimal Crossing, Ellis Bridge");
-  const [custCity, setCustCity] = useState("Ahmedabad");
+  // Checkout address & order inputs (empty by default for user entry)
+  const [custName, setCustName] = useState("");
+  const [custPhone, setCustPhone] = useState("");
+  const [custEmail, setCustEmail] = useState("");
+  const [custAddress1, setCustAddress1] = useState("");
+  const [custAddress2, setCustAddress2] = useState("");
+  const [custCity, setCustCity] = useState("");
   const [custState, setCustState] = useState("Gujarat");
   const [custNotes, setCustNotes] = useState("");
   const [couponCodeInput, setCouponCodeInput] = useState("");

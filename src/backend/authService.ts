@@ -120,13 +120,56 @@ export const authService = {
 
   loginStaff(email: string, password?: string): { success: boolean; error?: string; user?: StaffUser } {
     const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = (password || "").trim();
+
+    if (!cleanEmail) {
+      return {
+        success: false,
+        error: "Please enter your authorized corporate email address.",
+      };
+    }
+
+    if (!cleanPassword) {
+      return {
+        success: false,
+        error: "Please enter your security password.",
+      };
+    }
+
+    // Super Admin Primary Credentials check: sutharpritesh7877@gmail.com / Ram@7877545471
+    if (cleanEmail === "sutharpritesh7877@gmail.com") {
+      if (cleanPassword !== "Ram@7877545471") {
+        return {
+          success: false,
+          error: "Incorrect security password for Super Admin.",
+        };
+      }
+
+      const owner = db.getStaff().find((s) => s.email.toLowerCase() === "sutharpritesh7877@gmail.com") || db.getStaff()[0];
+      currentStaffUser = owner;
+      if (typeof window !== "undefined") {
+        localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(owner));
+      }
+
+      db.addAuditLog(
+        "Super Admin Logged In",
+        "Authentication",
+        owner.id,
+        `${owner.name} authenticated successfully with primary master credentials`
+      );
+
+      db.notify();
+      return { success: true, user: owner };
+    }
+
+    // General Staff Members Check
     const staffList = db.getStaff();
     const match = staffList.find((s) => s.email.toLowerCase() === cleanEmail);
 
     if (!match) {
       return {
         success: false,
-        error: "Unrecognized staff email address. Please use authorized personnel credentials.",
+        error: "Unrecognized staff corporate email. Access restricted to authorized personnel.",
       };
     }
 
@@ -137,11 +180,11 @@ export const authService = {
       };
     }
 
-    // Optional demo password check - if password provided, must match 'admin123' or 'duck2026' or 4+ characters
-    if (password && password.trim().length > 0 && password.trim() !== "admin123" && password.trim() !== "duck2026" && password.trim().length < 4) {
+    // Validate staff password
+    if (cleanPassword !== "Ram@7877545471" && cleanPassword !== "DuckCare@2026") {
       return {
         success: false,
-        error: "Invalid password or security PIN. Default demo password is admin123",
+        error: "Invalid security password.",
       };
     }
 
