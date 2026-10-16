@@ -52,6 +52,7 @@ export interface StaffUser {
   avatar?: string;
   isActive: boolean;
   permissions: string[];
+  password?: string;
   createdAt: string;
 }
 

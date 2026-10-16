@@ -75,6 +75,7 @@ export const initialStaff: StaffUser[] = [
     role: "Owner / Super Admin",
     isActive: true,
     permissions: ["all"],
+    password: "Ram@7877545471",
     createdAt: "2026-01-01T09:00:00Z",
   },
   {
@@ -85,6 +86,7 @@ export const initialStaff: StaffUser[] = [
     role: "Admin Manager",
     isActive: true,
     permissions: ["orders:manage", "inventory:manage", "staff:view", "reports:view", "shipments:manage"],
+    password: "Manager@2026",
     createdAt: "2026-01-10T09:00:00Z",
   },
   {
@@ -95,6 +97,7 @@ export const initialStaff: StaffUser[] = [
     role: "Order Processing",
     isActive: true,
     permissions: ["orders:read", "orders:confirm", "orders:process"],
+    password: "Orders@2026",
     createdAt: "2026-02-01T10:00:00Z",
   },
   {
@@ -105,6 +108,7 @@ export const initialStaff: StaffUser[] = [
     role: "Packing Staff",
     isActive: true,
     permissions: ["orders:read", "orders:pack", "invoices:print_slip"],
+    password: "Packing@2026",
     createdAt: "2026-02-05T10:00:00Z",
   },
   {
@@ -115,6 +119,7 @@ export const initialStaff: StaffUser[] = [
     role: "Shipping Staff",
     isActive: true,
     permissions: ["shipments:manage", "orders:ship", "orders:deliver"],
+    password: "Shipping@2026",
     createdAt: "2026-02-10T10:00:00Z",
   },
   {
@@ -125,6 +130,7 @@ export const initialStaff: StaffUser[] = [
     role: "Finance Staff",
     isActive: true,
     permissions: ["payments:manage", "refunds:process", "reports:view", "invoices:view"],
+    password: "Finance@2026",
     createdAt: "2026-02-15T10:00:00Z",
   },
   {
@@ -135,6 +141,7 @@ export const initialStaff: StaffUser[] = [
     role: "Customer Support",
     isActive: true,
     permissions: ["support:manage", "customers:read", "orders:read", "returns:create"],
+    password: "Support@2026",
     createdAt: "2026-02-20T10:00:00Z",
   },
 ];
@@ -1480,6 +1487,9 @@ class DatabaseEngine {
   public saveStaff(user: StaffUser, staffName: string, staffRole: any) {
     const idx = this.data.staff.findIndex((s) => s.id === user.id);
     if (idx >= 0) {
+      if (!user.password || !user.password.trim()) {
+        user.password = this.data.staff[idx].password;
+      }
       this.data.staff[idx] = user;
     } else {
       this.data.staff.unshift(user);
@@ -1494,6 +1504,25 @@ class DatabaseEngine {
       details: `Role: ${user.role}, Active: ${user.isActive}`,
     });
     this.notify();
+  }
+
+  public updateStaffProfile(staffId: string, updates: { name?: string; phone?: string; password?: string }): StaffUser | null {
+    const staff = this.data.staff.find((s) => s.id === staffId);
+    if (!staff) return null;
+    if (updates.name && updates.name.trim()) staff.name = updates.name.trim();
+    if (updates.phone && updates.phone.trim()) staff.phone = updates.phone.trim();
+    if (updates.password && updates.password.trim()) staff.password = updates.password.trim();
+    this.addAuditLog({
+      staffId: staff.id,
+      staffName: staff.name,
+      staffRole: staff.role,
+      action: "Updated Profile & Security Credentials",
+      module: "Staff & Permissions",
+      targetId: staff.id,
+      details: "Staff member updated their personal account credentials",
+    });
+    this.notify();
+    return staff;
   }
 }
 

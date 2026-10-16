@@ -27,27 +27,24 @@ export function StaffPermissionsModule() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const role = form.get("role") as StaffRole;
+    const passwordInput = (form.get("password") as string)?.trim();
 
     const staffData: StaffUser = {
       id: editingStaff?.id || `stf-${Date.now()}`,
-      name: form.get("name") as string,
-      email: form.get("email") as string,
-      phone: form.get("phone") as string,
+      name: (form.get("name") as string).trim(),
+      email: (form.get("email") as string).trim().toLowerCase(),
+      phone: (form.get("phone") as string).trim(),
       role,
       isActive: form.get("isActive") === "true",
       permissions: ROLE_PERMISSIONS[role] || [],
+      password: passwordInput || editingStaff?.password || "DuckCare@2026",
       createdAt: editingStaff?.createdAt || new Date().toISOString(),
     };
 
     db.saveStaff(staffData, currentStaff.name, currentStaff.role);
-    setFeedback(`Staff account ${staffData.name} saved.`);
+    setFeedback(`Staff account ${staffData.name} saved successfully.`);
     setEditingStaff(null);
     setIsNewModalOpen(false);
-  };
-
-  const handleSwitchActiveRole = (s: StaffUser) => {
-    authService.setCurrentUser(s);
-    setFeedback(`Now viewing dashboard as ${s.name} (${s.role}).`);
   };
 
   return (
@@ -134,18 +131,12 @@ export function StaffPermissionsModule() {
                     </span>
                   </td>
                   <td className="px-4 py-3.5 text-right whitespace-nowrap space-x-1">
-                    <button
-                      onClick={() => handleSwitchActiveRole(s)}
-                      className="rounded-full bg-canvas px-3 py-1 text-[10px] font-bold text-purple uppercase hover:bg-lilac transition"
-                    >
-                      Test as this user
-                    </button>
                     {canManage && (
                       <button
                         onClick={() => setEditingStaff(s)}
                         className="rounded-full bg-purple/10 px-3 py-1 text-[10px] font-bold text-purple uppercase hover:bg-purple hover:text-white transition"
                       >
-                        Edit
+                        Edit Staff
                       </button>
                     )}
                   </td>
@@ -226,6 +217,23 @@ export function StaffPermissionsModule() {
                 required
                 className="w-full rounded-xl border border-purple/15 p-2.5 outline-none"
               />
+            </label>
+
+            <label className="block text-xs">
+              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">
+                {editingStaff ? "New Login Password (leave blank to keep current)" : "Login Password / Temp Password *"}
+              </span>
+              <input
+                type="text"
+                name="password"
+                required={!editingStaff}
+                minLength={6}
+                placeholder={editingStaff ? "Leave blank to keep existing password" : "Set login password (min 6 chars)"}
+                className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-mono text-xs"
+              />
+              <span className="mt-1 block text-[9px] text-ink/40">
+                {editingStaff ? "Only fill this to reset this staff member's password." : "Staff will use this password and their corporate email to sign in."}
+              </span>
             </label>
 
             <label className="block text-xs">

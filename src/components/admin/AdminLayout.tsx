@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { authService } from "../../backend/authService";
 import { db } from "../../backend/db";
 import { StaffRole } from "../../types";
+import { StaffProfileModal } from "./StaffProfileModal";
 
 // Import all 18+ modules
 import { DashboardOverview } from "./modules/DashboardOverview";
@@ -24,6 +25,37 @@ import { WebsiteSettingsModule } from "./modules/WebsiteSettingsModule";
 import { SecurityAuditModule } from "./modules/SecurityAuditModule";
 import { SuppliersModule } from "./modules/SuppliersModule";
 
+// Strict Duty-Based Module Permissions ("one person assigned duty only does that, no other role")
+const ROLE_PERMITTED_MODULES: Record<StaffRole, string[]> = {
+  "Owner / Super Admin": [
+    "overview", "orders", "products", "categories", "inventory",
+    "shipping", "returns", "customers", "staff", "coupons",
+    "content", "payments", "invoices", "notifications", "reports",
+    "support", "settings", "audit", "suppliers"
+  ],
+  "Admin Manager": [
+    "overview", "orders", "products", "categories", "inventory",
+    "shipping", "returns", "customers", "coupons", "content",
+    "payments", "invoices", "notifications", "reports", "support",
+    "suppliers", "audit"
+  ],
+  "Order Processing": [
+    "overview", "orders", "products", "inventory", "invoices", "customers"
+  ],
+  "Packing Staff": [
+    "overview", "orders", "inventory", "invoices"
+  ],
+  "Shipping Staff": [
+    "overview", "shipping", "orders"
+  ],
+  "Finance Staff": [
+    "overview", "payments", "invoices", "returns", "reports", "orders"
+  ],
+  "Customer Support": [
+    "overview", "support", "customers", "returns", "orders", "notifications"
+  ],
+};
+
 export function AdminLayout({
   onBackToStore,
   onSignOut,
@@ -34,6 +66,7 @@ export function AdminLayout({
   const [activeModule, setActiveModule] = useState<string>("overview");
   const [currentStaff, setCurrentStaff] = useState(authService.getCurrentUser());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [, setDbVersion] = useState(0);
 
   const handleSignOut = () => {
@@ -85,12 +118,34 @@ export function AdminLayout({
     { id: "suppliers", label: "19. Suppliers & Purchase Orders" },
   ];
 
-  const handleRoleChange = (role: StaffRole) => {
-    authService.switchRole(role);
-    setCurrentStaff(authService.getCurrentUser());
-  };
+  // Permitted modules for this staff user
+  const permittedModules = ROLE_PERMITTED_MODULES[currentStaff.role] || ["overview"];
+  const isPermitted = permittedModules.includes(activeModule);
 
   const renderActiveModule = () => {
+    if (!isPermitted) {
+      return (
+        <div className="mx-auto my-12 max-w-lg rounded-3xl border border-rose-200 bg-white p-8 text-center shadow-lg">
+          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-rose-50 text-rose-600 text-3xl">
+            🔒
+          </div>
+          <span className="rounded-full bg-rose-100 px-3 py-1 text-[10px] font-bold uppercase text-rose-700">
+            Strictly Prohibited
+          </span>
+          <h2 className="mt-3 font-display text-2xl font-bold text-ink">Access Restricted to Assigned Duty</h2>
+          <p className="mt-2 text-xs leading-relaxed text-ink/60">
+            Your assigned operational duty is <strong>{currentStaff.role}</strong> ({currentStaff.name}). You are strictly authorized to perform assigned duties only. Access to this administrative module is prohibited.
+          </p>
+          <button
+            onClick={() => setActiveModule("overview")}
+            className="mt-6 rounded-full bg-purple px-6 py-2.5 text-xs font-bold text-white uppercase hover:bg-purple-dark transition"
+          >
+            Return to Authorized Dashboard
+          </button>
+        </div>
+      );
+    }
+
     switch (activeModule) {
       case "overview":
         return <DashboardOverview onNavigate={(mod) => setActiveModule(mod)} />;
@@ -137,6 +192,16 @@ export function AdminLayout({
 
   return (
     <div className="min-h-screen bg-admin text-ink flex flex-col lg:flex-row">
+      {/* Staff Profile & Password Edit Modal */}
+      <StaffProfileModal
+        isOpen={profileModalOpen}
+        onClose={() => setProfileModalOpen(false)}
+        currentStaff={currentStaff}
+        onUpdated={() => {
+          setCurrentStaff(authService.getCurrentUser());
+        }}
+      />
+
       {/* Sidebar Navigation */}
       <aside className={`fixed inset-y-0 left-0 z-40 w-72 flex-col bg-purple-dark p-5 text-white transition-transform lg:static lg:flex lg:translate-x-0 ${
         mobileMenuOpen ? "translate-x-0 flex" : "-translate-x-full"
@@ -160,54 +225,59 @@ export function AdminLayout({
           </button>
         </div>
 
-        {/* Staff Role Switcher */}
-        <div className="mt-4 rounded-2xl bg-white/10 p-3 text-xs">
-          <span className="block text-[8px] font-bold tracking-wider text-lilac uppercase">Simulate Role / Staff:</span>
-          <select
-            value={currentStaff.role}
-            onChange={(e) => handleRoleChange(e.target.value as StaffRole)}
-            className="mt-1.5 w-full rounded-xl bg-purple-dark border border-white/20 p-2 text-xs font-semibold text-white outline-none cursor-pointer"
-          >
-            <option value="Owner / Super Admin">👑 Owner / Super Admin</option>
-            <option value="Admin Manager">⚡ Admin Manager</option>
-            <option value="Order Processing">📋 Order Processing</option>
-            <option value="Packing Staff">📦 Packing Staff</option>
-            <option value="Shipping Staff">🚚 Shipping Staff</option>
-            <option value="Finance Staff">💰 Finance Staff</option>
-            <option value="Customer Support">💬 Customer Support</option>
-          </select>
-          <div className="mt-2 flex items-center justify-between text-[10px] text-white/60">
-            <span>Signed: {currentStaff.name}</span>
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+        {/* Assigned Duty Card (Role Locked - No Unauthorized Simulation) */}
+        <div className="mt-4 rounded-2xl bg-white/10 p-3.5 text-xs border border-white/10">
+          <div className="flex items-center justify-between">
+            <span className="text-[8px] font-bold tracking-wider text-lilac uppercase">Assigned Duty:</span>
+            <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-bold uppercase">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Duty Locked
+            </span>
+          </div>
+          <div className="mt-2">
+            <span className="inline-block rounded-lg bg-white/15 px-2.5 py-1 text-xs font-bold text-white">
+              {currentStaff.role}
+            </span>
+          </div>
+          <div className="mt-2.5 flex items-center justify-between border-t border-white/10 pt-2 text-[10px] text-white/70">
+            <span className="truncate max-w-[130px] font-semibold">{currentStaff.name}</span>
+            <button
+              onClick={() => setProfileModalOpen(true)}
+              className="font-bold text-lilac hover:text-white transition uppercase text-[9px]"
+            >
+              Edit Profile
+            </button>
           </div>
         </div>
 
-        {/* 18 Navigation Links */}
+        {/* Permitted Navigation Links Only */}
         <nav className="mt-4 flex-1 space-y-1 overflow-y-auto pr-1 text-xs">
-          {navigationItems.map((item) => {
-            const isActive = activeModule === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setActiveModule(item.id);
-                  setMobileMenuOpen(false);
-                }}
-                className={`flex w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left font-semibold transition ${
-                  isActive
-                    ? "bg-white text-purple shadow-sm font-bold"
-                    : "text-white/70 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                <span className="truncate">{item.label}</span>
-                {item.badge !== undefined && item.badge > 0 && (
-                  <span className={`ml-2 rounded-full px-2 py-0.5 text-[9px] font-bold ${item.badgeColor || "bg-lilac text-purple"}`}>
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {navigationItems
+            .filter((item) => permittedModules.includes(item.id))
+            .map((item) => {
+              const isActive = activeModule === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveModule(item.id);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-xl px-3.5 py-2.5 text-left font-semibold transition ${
+                    isActive
+                      ? "bg-white text-purple shadow-sm font-bold"
+                      : "text-white/70 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <span className="truncate">{item.label}</span>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className={`ml-2 rounded-full px-2 py-0.5 text-[9px] font-bold ${item.badgeColor || "bg-lilac text-purple"}`}>
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
         </nav>
 
         {/* Bottom Actions */}
@@ -224,17 +294,19 @@ export function AdminLayout({
           >
             <span>🔒</span> Sign Out OMS
           </button>
-          <button
-            onClick={() => {
-              if (confirm("Reset database to initial demo state? All orders, products, and logs will be restored.")) {
-                db.resetToFactory();
-                setActiveModule("overview");
-              }
-            }}
-            className="w-full text-center text-[9px] font-bold text-white/40 uppercase hover:text-coral transition"
-          >
-            Reset Seed Data
-          </button>
+          {currentStaff.role === "Owner / Super Admin" && (
+            <button
+              onClick={() => {
+                if (confirm("Reset database to initial demo state? All orders, products, and logs will be restored.")) {
+                  db.resetToFactory();
+                  setActiveModule("overview");
+                }
+              }}
+              className="w-full text-center text-[9px] font-bold text-white/40 uppercase hover:text-coral transition"
+            >
+              Reset Seed Data
+            </button>
+          )}
         </div>
       </aside>
 
@@ -272,7 +344,11 @@ export function AdminLayout({
             >
               <span>🔒</span> Sign Out
             </button>
-            <div className="flex items-center gap-2 rounded-full border border-purple/15 bg-white p-1 pl-3 shadow-xs">
+            <div
+              onClick={() => setProfileModalOpen(true)}
+              className="flex items-center gap-2 rounded-full border border-purple/15 bg-white p-1 pl-3 shadow-xs cursor-pointer hover:border-purple transition"
+              title="Click to view & edit your staff profile / password"
+            >
               <span className="hidden sm:block text-right">
                 <strong className="block text-xs text-ink leading-none">{currentStaff.name}</strong>
                 <small className="text-[9px] text-ink/40 font-semibold">{currentStaff.role}</small>

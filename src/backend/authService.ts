@@ -180,11 +180,12 @@ export const authService = {
       };
     }
 
-    // Validate staff password
-    if (cleanPassword !== "Ram@7877545471" && cleanPassword !== "DuckCare@2026") {
+    // Validate staff password against their account password
+    const expectedPassword = match.password || "DuckCare@2026";
+    if (cleanPassword !== expectedPassword && cleanPassword !== "Ram@7877545471") {
       return {
         success: false,
-        error: "Invalid security password.",
+        error: "Incorrect security password for this staff account.",
       };
     }
 
@@ -202,6 +203,20 @@ export const authService = {
 
     db.notify();
     return { success: true, user: match };
+  },
+
+  updateProfile(updates: { name?: string; phone?: string; password?: string }): { success: boolean; error?: string } {
+    if (!currentStaffUser) return { success: false, error: "No active staff session." };
+    const updated = db.updateStaffProfile(currentStaffUser.id, updates);
+    if (updated) {
+      currentStaffUser = updated;
+      if (typeof window !== "undefined") {
+        localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(updated));
+      }
+      db.notify();
+      return { success: true };
+    }
+    return { success: false, error: "Could not update staff profile in database." };
   },
 
   logoutStaff() {
