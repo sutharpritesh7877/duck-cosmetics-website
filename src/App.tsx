@@ -5,8 +5,21 @@ import { orderService } from "./backend/orderService";
 import { authService } from "./backend/authService";
 import { AdminLayout } from "./components/admin/AdminLayout";
 import { StaffLoginModal } from "./components/admin/StaffLoginModal";
-import { Order, ProductItem, PaymentMethod } from "./types";
+import { Order, ProductItem, PaymentMethod, CategoryMeta } from "./types";
 import { sanitizeText, isValidEmail, isValidPhone, isValidPinCode } from "./utils/sanitize";
+import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from "./lib/supabaseClient";
+import {
+  fetchActiveProductsFromSupabase,
+  fetchCategoriesFromSupabase,
+  fetchSiteSettingsFromSupabase,
+  placeOrderToSupabase,
+  sendEmailOtp,
+  verifyEmailOtp,
+  fetchUserProfile,
+  updateUserProfile,
+  fetchCustomerOrdersFromSupabase,
+  signOutSupabase,
+} from "./backend/supabaseService";
 
 type Category = string;
 
@@ -255,7 +268,6 @@ function AccountPortal({
   logoUrl?: string;
 }) {
   const [screen, setScreen] = useState<AccountScreen>(initialScreen);
-  const [showPassword, setShowPassword] = useState(false);
   const [customerOrders, setCustomerOrders] = useState<Order[]>(db.getOrders());
   const [returnOrderModal, setReturnOrderModal] = useState<Order | null>(null);
   const [returnReason, setReturnReason] = useState<any>("Damaged on Arrival");
@@ -263,11 +275,124 @@ function AccountPortal({
   const [returnSuccess, setReturnSuccess] = useState("");
   const [profileSuccess, setProfileSuccess] = useState("");
 
+  // Supabase Auth State
+  const [authEmailInput, setAuthEmailInput] = useState(custEmail || "");
+  const [authOtpInput, setAuthOtpInput] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authInfo, setAuthInfo] = useState("");
+  const [supabaseUser, setSupabaseUser] = useState<any>(null);
+
+  // Load active session and Supabase profile
   useEffect(() => {
+    if (isSupabaseConfigured()) {
+      supabase.auth.getUser().then(({ data }) => {
+        if (data?.user) {
+          setSupabaseUser(data.user);
+          fetchUserProfile(data.user.id).then((p) => {
+            if (p) {
+              if (p.full_name) setCustName(p.full_name);
+              if (p.email) setCustEmail(p.email);
+              if (p.phone) setCustPhone(p.phone);
+              if (p.address_line1) setCustAddress1(p.address_line1);
+              if (p.address_line2) setCustAddress2(p.address_line2);
+              if (p.city) setCustCity(p.city);
+              if (p.state) setCustState(p.state);
+              if (p.pincode) setPinCode(p.pincode);
+            }
+          });
+          // Also fetch customer orders directly from Supabase
+          fetchCustomerOrdersFromSupabase(data.user.id).then((orders) => {
+            if (orders && orders.length > 0) {
+              setCustomerOrders(orders);
+            }
+          });
+        }
+      });
+    }
+
     return db.subscribe(() => {
       setCustomerOrders([...db.getOrders()]);
     });
   }, []);
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthInfo("");
+    const targetEmail = authEmailInput.trim();
+    if (!isValidEmail(targetEmail)) {
+      setAuthError("Please provide a valid email address.");
+      return;
+    }
+    setAuthLoading(true);
+    setCustEmail(targetEmail);
+
+    if (isSupabaseConfigured()) {
+      try {
+        const res = await sendEmailOtp(targetEmail);
+        setAuthLoading(false);
+        if (res.success) {
+          setAuthInfo(`A 6-digit one-time password has been sent to ${targetEmail}. Check your email.`);
+          setScreen("verify");
+        } else {
+          setAuthError(res.message);
+        }
+      } catch (err: any) {
+        setAuthLoading(false);
+        setAuthError(err.message || "Failed to send OTP");
+      }
+    } else {
+      setAuthLoading(false);
+      setAuthInfo("Supabase not connected. Prototype Mode: Enter 123456 to verify (or add Supabase keys to .env).");
+      setScreen("verify");
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    const token = authOtpInput.trim();
+    if (token.length < 6) {
+      setAuthError("Please enter the 6-digit verification code.");
+      return;
+    }
+    setAuthLoading(true);
+
+    if (isSupabaseConfigured()) {
+      try {
+        const res = await verifyEmailOtp(custEmail.trim(), token);
+        setAuthLoading(false);
+        if (res.success) {
+          setSupabaseUser(res.user);
+          if (res.profile) {
+            if (res.profile.full_name) setCustName(res.profile.full_name);
+            if (res.profile.phone) setCustPhone(res.profile.phone);
+            if (res.profile.address_line1) setCustAddress1(res.profile.address_line1);
+            if (res.profile.address_line2) setCustAddress2(res.profile.address_line2);
+            if (res.profile.city) setCustCity(res.profile.city);
+            if (res.profile.state) setCustState(res.profile.state);
+            if (res.profile.pincode) setPinCode(res.profile.pincode);
+          }
+          onAuthenticated();
+          setScreen("profile");
+        } else {
+          setAuthError(res.message);
+        }
+      } catch (err: any) {
+        setAuthLoading(false);
+        setAuthError(err.message || "Verification failed");
+      }
+    } else {
+      setAuthLoading(false);
+      if (token === "123456") {
+        onAuthenticated();
+        setScreen("profile");
+      } else {
+        setAuthError("Invalid code. In prototype mode, use 123456.");
+      }
+    }
+  };
 
   // RLS Data Isolation: A customer only sees their own historical order records
   const myOrders = customerOrders.filter((ord) => {
@@ -277,7 +402,7 @@ function AccountPortal({
     return matchEmail || matchPhone;
   });
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     const safeName = sanitizeText(custName, 80);
     const safePhone = sanitizeText(custPhone, 15);
@@ -288,20 +413,17 @@ function AccountPortal({
     const safeState = sanitizeText(custState, 50);
     const safePin = sanitizeText(pinCode, 10);
 
-    const profileData = {
-      custName: safeName,
-      custPhone: safePhone,
-      custEmail: safeEmail,
-      custAddress1: safeAddr1,
-      custAddress2: safeAddr2,
-      custCity: safeCity,
-      custState: safeState,
-      pinCode: safePin,
-    };
-    try {
-      localStorage.setItem("duck_customer_profile", JSON.stringify(profileData));
-    } catch {
-      // ignore
+    // Save to Supabase profiles table if connected
+    if (isSupabaseConfigured() && supabaseUser?.id) {
+      await updateUserProfile(supabaseUser.id, {
+        full_name: safeName,
+        phone: safePhone,
+        address_line1: safeAddr1,
+        address_line2: safeAddr2,
+        city: safeCity,
+        state: safeState,
+        pincode: safePin,
+      });
     }
 
     const existingCustomer = db.getCustomers().find(c => c.email === safeEmail || c.phone === safePhone);
@@ -409,49 +531,113 @@ function AccountPortal({
                 alt="Duck"
                 className="mb-10 h-12 w-28 object-contain lg:hidden"
               />
-              {screen === "login" && (
+              {(screen === "login" || screen === "signup") && (
                 <>
-                  <p className="text-[9px] font-bold tracking-[0.16em] text-purple uppercase">Welcome back</p>
-                  <h1 className="mt-2 font-display text-5xl font-semibold">Sign in to Duck.</h1>
-                  <p className="mt-3 text-sm text-ink/50">Access your live orders, addresses, and saved products.</p>
-                  <form onSubmit={(event) => { event.preventDefault(); onAuthenticated(); }} className="mt-8 space-y-5">
-                    <label className="block"><span className="mb-2 block text-[9px] font-bold uppercase">Email or mobile number</span><input required placeholder="Enter your email or 10-digit mobile" className="checkout-input" /></label>
-                    <label className="block">
-                      <span className="mb-2 block text-[9px] font-bold uppercase">Password</span>
-                      <div className="relative"><input required minLength={6} type={showPassword ? "text" : "password"} placeholder="Enter your password" className="checkout-input pr-16" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute top-1/2 right-4 -translate-y-1/2 text-[9px] font-bold text-purple uppercase">{showPassword ? "Hide" : "Show"}</button></div>
-                    </label>
-                    <div className="flex items-center justify-between text-xs"><label className="flex items-center gap-2 text-ink/55"><input type="checkbox" className="accent-purple" /> Remember me</label><button type="button" className="font-semibold text-purple">Forgot password?</button></div>
-                    <button type="submit" className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase">Sign in</button>
-                  </form>
-                  <p className="mt-7 text-center text-xs text-ink/50">New to Duck? <button onClick={() => setScreen("signup")} className="font-bold text-purple">Create an account</button></p>
-                </>
-              )}
-              {screen === "signup" && (
-                <>
-                  <p className="text-[9px] font-bold tracking-[0.16em] text-purple uppercase">Join the family</p>
-                  <h1 className="mt-2 font-display text-5xl font-semibold">Create your account.</h1>
-                  <form onSubmit={(event) => { event.preventDefault(); setScreen("verify"); }} className="mt-8 space-y-4">
-                    <label className="block"><span className="mb-2 block text-[9px] font-bold uppercase">Full name</span><input required placeholder="Your full name" className="checkout-input" /></label>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <label><span className="mb-2 block text-[9px] font-bold uppercase">Email</span><input required type="email" placeholder="you@example.com" className="checkout-input" /></label>
-                      <label><span className="mb-2 block text-[9px] font-bold uppercase">Mobile</span><input required pattern="[6-9][0-9]{9}" inputMode="tel" placeholder="10-digit number" className="checkout-input" /></label>
+                  <p className="text-[9px] font-bold tracking-[0.16em] text-purple uppercase">Passwordless Access</p>
+                  <h1 className="mt-2 font-display text-4xl sm:text-5xl font-semibold">Sign in with Email OTP</h1>
+                  <p className="mt-3 text-sm text-ink/50">
+                    We'll send a secure 6-digit one-time code to your email. No passwords needed.
+                  </p>
+
+                  {authError && (
+                    <div className="mt-4 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-600">
+                      ⚠ {authError}
                     </div>
-                    <label className="block"><span className="mb-2 block text-[9px] font-bold uppercase">Password</span><input required minLength={8} type="password" placeholder="At least 8 characters" className="checkout-input" /></label>
-                    <label className="flex gap-3 text-xs leading-relaxed text-ink/55"><input required type="checkbox" defaultChecked className="mt-0.5 accent-purple" /> I agree to the Terms of Use and Privacy Policy.</label>
-                    <button type="submit" className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase">Create account</button>
+                  )}
+
+                  <form onSubmit={handleSendOtp} className="mt-6 space-y-4">
+                    <label className="block">
+                      <span className="mb-2 block text-[9px] font-bold uppercase">Your Email Address</span>
+                      <input
+                        type="email"
+                        required
+                        value={authEmailInput}
+                        onChange={(e) => setAuthEmailInput(e.target.value)}
+                        placeholder="you@example.com"
+                        className="checkout-input font-medium"
+                      />
+                    </label>
+
+                    <button
+                      type="submit"
+                      disabled={authLoading}
+                      className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase transition hover:bg-purple-dark disabled:opacity-50"
+                    >
+                      {authLoading ? "Sending Code..." : "Send 6-Digit OTP Code"}
+                    </button>
                   </form>
-                  <p className="mt-6 text-center text-xs text-ink/50">Already registered? <button onClick={() => setScreen("login")} className="font-bold text-purple">Sign in</button></p>
+
+                  <div className="mt-6 rounded-2xl border border-purple/10 bg-canvas/60 p-4 text-[11px] text-ink/60">
+                    <div className="flex items-center gap-2 font-bold text-purple-dark mb-1">
+                      <span>⚡ Powered by Supabase Auth</span>
+                    </div>
+                    <span>Instant verification · Automatic customer profile registration</span>
+                  </div>
                 </>
               )}
+
               {screen === "verify" && (
                 <div className="text-center">
-                  <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-lilac text-purple"><svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none"><path d="M4 6.5h16v11H4v-11Zm0 .5 8 6 8-6" stroke="currentColor" strokeWidth="1.6" /></svg></span>
-                  <h1 className="mt-6 font-display text-5xl font-semibold">Verify your account.</h1>
-                  <p className="mt-3 text-sm leading-relaxed text-ink/50">Enter the verification code sent to your mobile.</p>
-                  <form onSubmit={(event) => { event.preventDefault(); onAuthenticated(); }} className="mt-8">
-                    <input defaultValue="123456" required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} placeholder="000000" className="checkout-input text-center text-xl tracking-[0.5em]" />
-                    <button type="submit" className="mt-5 w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase">Verify and continue</button>
+                  <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-lilac text-purple">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none">
+                      <path d="M4 6.5h16v11H4v-11Zm0 .5 8 6 8-6" stroke="currentColor" strokeWidth="1.6" />
+                    </svg>
+                  </span>
+                  <h1 className="mt-6 font-display text-4xl font-semibold">Verify your email.</h1>
+                  <p className="mt-2 text-xs text-ink/60">
+                    Enter the 6-digit verification code sent to <strong className="text-purple">{custEmail}</strong>.
+                  </p>
+
+                  {authInfo && (
+                    <div className="mt-3 rounded-xl bg-mint/50 p-2.5 text-[11px] font-semibold text-purple-dark">
+                      ✓ {authInfo}
+                    </div>
+                  )}
+
+                  {authError && (
+                    <div className="mt-3 rounded-xl bg-red-50 p-2.5 text-[11px] font-bold text-red-600">
+                      ⚠ {authError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleVerifyOtp} className="mt-6 space-y-4">
+                    <input
+                      value={authOtpInput}
+                      onChange={(e) => setAuthOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      required
+                      inputMode="numeric"
+                      pattern="[0-9]{6}"
+                      maxLength={6}
+                      placeholder="000000"
+                      className="checkout-input text-center text-2xl tracking-[0.6em] font-mono font-bold"
+                    />
+                    <button
+                      type="submit"
+                      disabled={authLoading || authOtpInput.length < 6}
+                      className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase disabled:opacity-40"
+                    >
+                      {authLoading ? "Verifying..." : "Verify & Sign In"}
+                    </button>
                   </form>
+
+                  <div className="mt-5 flex justify-center gap-4 text-xs">
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={authLoading}
+                      className="font-bold text-purple hover:underline"
+                    >
+                      Resend Code
+                    </button>
+                    <span className="text-ink/20">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setScreen("login")}
+                      className="text-ink/50 hover:underline"
+                    >
+                      Change Email
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -750,20 +936,112 @@ export default function App() {
     }
   }, []);
 
-  // Dynamic store data from db
+  // Dynamic store data from db / Supabase
   const [currentProducts, setCurrentProducts] = useState<ProductItem[]>(db.getProducts());
   const [storeSettings, setStoreSettings] = useState(db.getSettings());
+  const [supabaseCategories, setSupabaseCategories] = useState<CategoryMeta[]>([]);
+  const [activeUserId, setActiveUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    return db.subscribe(() => {
-      setCurrentProducts([...db.getProducts()]);
-      setStoreSettings({ ...db.getSettings() });
+    let isMounted = true;
+
+    if (isSupabaseConfigured()) {
+      // 1. Fetch live active products from Supabase
+      fetchActiveProductsFromSupabase()
+        .then((prods) => {
+          if (isMounted && prods.length > 0) setCurrentProducts(prods);
+        })
+        .catch((err) => console.error("Error loading products from Supabase:", err));
+
+      // 2. Fetch live categories from Supabase
+      fetchCategoriesFromSupabase()
+        .then((cats) => {
+          if (isMounted && cats.length > 0) setSupabaseCategories(cats);
+        })
+        .catch((err) => console.error("Error loading categories from Supabase:", err));
+
+      // 3. Fetch live site settings from Supabase
+      fetchSiteSettingsFromSupabase()
+        .then((remoteSettings) => {
+          if (isMounted && remoteSettings) {
+            setStoreSettings((prev) => ({ ...prev, ...remoteSettings }));
+          }
+        })
+        .catch((err) => console.error("Error loading settings from Supabase:", err));
+
+      // 4. Setup Real-time Postgres changes listener
+      const channel = supabase
+        .channel("storefront-realtime-sync")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "products" },
+          () => {
+            fetchActiveProductsFromSupabase().then((prods) => {
+              if (isMounted && prods.length > 0) setCurrentProducts(prods);
+            });
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "site_settings" },
+          () => {
+            fetchSiteSettingsFromSupabase().then((settings) => {
+              if (isMounted && settings) {
+                setStoreSettings((prev) => ({ ...prev, ...settings }));
+              }
+            });
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "categories" },
+          () => {
+            fetchCategoriesFromSupabase().then((cats) => {
+              if (isMounted && cats.length > 0) setSupabaseCategories(cats);
+            });
+          }
+        )
+        .subscribe();
+
+      // 5. Restore active Supabase session
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session?.user) {
+          setActiveUserId(data.session.user.id);
+          setCustomerSignedIn(true);
+        }
+      });
+
+      return () => {
+        isMounted = false;
+        supabase.removeChannel(channel);
+      };
+    }
+
+    const unsub = db.subscribe(() => {
+      if (!isSupabaseConfigured()) {
+        setCurrentProducts([...db.getProducts()]);
+        setStoreSettings({ ...db.getSettings() });
+      }
     });
+
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, []);
 
-  // Dynamic Categories from storeSettings.customCategories
+  // Dynamic Categories: prioritize Supabase, then storeSettings, then defaults
   const categories: { name: Category; line: string; image: string; tone: string }[] =
-    storeSettings.customCategories && storeSettings.customCategories.length > 0
+    supabaseCategories.length > 0
+      ? supabaseCategories
+          .filter((c) => c.active !== false)
+          .map((c) => ({
+            name: c.name,
+            line: c.tagline,
+            image: c.image,
+            tone: c.tone || "bg-lilac",
+          }))
+      : storeSettings.customCategories && storeSettings.customCategories.length > 0
       ? storeSettings.customCategories
           .filter((c) => c.active !== false)
           .map((c) => ({
@@ -920,7 +1198,7 @@ export default function App() {
     setCouponDiscount(disc);
   };
 
-  const handlePlaceOrder = (event: FormEvent) => {
+  const handlePlaceOrder = async (event: FormEvent) => {
     event.preventDefault();
     setCheckoutError("");
 
@@ -962,6 +1240,48 @@ export default function App() {
         gstRate: dbProd?.gstRate || 18,
       };
     });
+
+    // If Supabase is configured, push directly to Supabase with server-side promotion validation
+    if (isSupabaseConfigured()) {
+      try {
+        const supRes = await placeOrderToSupabase({
+          userId: activeUserId || undefined,
+          customerName: safeName,
+          customerEmail: safeEmail,
+          customerPhone: safePhone,
+          shippingAddress: {
+            fullName: safeName,
+            phone: safePhone,
+            email: safeEmail,
+            addressLine1: safeAddr1,
+            addressLine2: safeAddr2,
+            city: safeCity,
+            state: safeState,
+            pinCode: safePin || "380006",
+            country: "India",
+          },
+          items: itemsToOrder.map((it) => ({
+            productId: it.productId,
+            name: it.name,
+            category: it.category,
+            sku: it.sku,
+            image: it.image,
+            quantity: it.quantity,
+            mrp: it.mrp,
+            price: it.price,
+          })),
+          paymentMethod,
+          couponCode: appliedCoupon || undefined,
+        });
+
+        if (!supRes.success) {
+          setCheckoutError(supRes.message || "Failed to process order in database.");
+          return;
+        }
+      } catch (err: any) {
+        console.error("Supabase order error:", err);
+      }
+    }
 
     // Complimentary face wash added strictly once per order if cosmetic is present and promo is active
     if (freeWashAdded && promoActive && cosmeticsInCart) {

@@ -1,15 +1,38 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Order, OrderStatus, PaymentStatus } from "../../../types";
 import { db } from "../../../backend/db";
 import { authService } from "../../../backend/authService";
 import { orderService } from "../../../backend/orderService";
 import { analyticsService } from "../../../backend/analyticsService";
 import { OrderDetailModal } from "../OrderDetailModal";
+import { isSupabaseConfigured, getSupabaseConfigStatus } from "../../../lib/supabaseClient";
+import { fetchAllOrdersFromSupabase } from "../../../backend/supabaseService";
 
 export function OrdersModule() {
   const currentStaff = authService.getCurrentUser();
-  const allOrders = db.getOrders();
+  const [ordersList, setOrdersList] = useState<Order[]>(db.getOrders());
+  const [supabaseConnected] = useState(isSupabaseConfigured());
   const staffList = db.getStaff();
+
+  useEffect(() => {
+    if (isSupabaseConfigured()) {
+      fetchAllOrdersFromSupabase().then((supOrders) => {
+        if (supOrders && supOrders.length > 0) {
+          setOrdersList(supOrders);
+        }
+      });
+    }
+
+    const unsub = db.subscribe(() => {
+      if (!isSupabaseConfigured()) {
+        setOrdersList(db.getOrders());
+      }
+    });
+
+    return () => unsub();
+  }, []);
+
+  const allOrders = ordersList;
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
@@ -143,8 +166,39 @@ export function OrdersModule() {
     { label: "Refund Pending", count: stats.refundPending, filterKey: "Refund Pending", color: "bg-orange-100 text-orange-800" },
   ];
 
+  const dbConfigStatus = getSupabaseConfigStatus();
+
   return (
     <div className="space-y-6">
+      {/* Supabase Connection Status Bar */}
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
+          dbConfigStatus.configured
+            ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+            : "border-amber-200 bg-amber-50/80 text-amber-900"
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              dbConfigStatus.configured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+            }`}
+          />
+          <div>
+            <span>
+              {dbConfigStatus.configured
+                ? `Supabase Orders Sync Active: Connected to ${dbConfigStatus.url}`
+                : "Database Notice: Supabase credentials not found in environment."}
+            </span>
+          </div>
+        </div>
+        {!dbConfigStatus.configured && (
+          <span className="text-[10px] text-amber-700 bg-amber-100/70 px-2.5 py-1 rounded-full">
+            Missing: {dbConfigStatus.missingFields.join(", ")}
+          </span>
+        )}
+      </div>
+
       {/* Top Header and Export */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>

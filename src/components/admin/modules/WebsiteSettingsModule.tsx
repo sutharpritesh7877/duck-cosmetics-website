@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { StoreSettings } from "../../../types";
 import { db } from "../../../backend/db";
 import { authService } from "../../../backend/authService";
 import { clearAllDemoData } from "../../../backend/demoCleaner";
+import { isSupabaseConfigured, getSupabaseConfigStatus } from "../../../lib/supabaseClient";
+import {
+  fetchSiteSettingsFromSupabase,
+  saveSiteSettingsToSupabase,
+} from "../../../backend/supabaseService";
 
 export function WebsiteSettingsModule() {
   const currentStaff = authService.getCurrentUser();
@@ -14,7 +19,27 @@ export function WebsiteSettingsModule() {
 
   const canManage = authService.can("settings:manage", currentStaff);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    let isMounted = true;
+    if (isSupabaseConfigured()) {
+      fetchSiteSettingsFromSupabase().then((remoteSettings) => {
+        if (isMounted && remoteSettings) {
+          setFormState((prev) => ({
+            ...prev,
+            ...remoteSettings,
+          }));
+          if (remoteSettings.serviceablePinCodes) {
+            setPinCodesString(remoteSettings.serviceablePinCodes.join(", "));
+          }
+        }
+      });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManage) return;
 
@@ -28,12 +53,52 @@ export function WebsiteSettingsModule() {
       serviceablePinCodes: parsedPinCodes,
     };
 
+    if (isSupabaseConfigured()) {
+      try {
+        await saveSiteSettingsToSupabase(updated);
+        setFeedback("Store configuration and marketing banners saved to Supabase site_settings table.");
+      } catch (err: any) {
+        console.error("Error saving site settings to Supabase:", err);
+      }
+    }
+
     db.saveSettings(updated, currentStaff.name, currentStaff.role);
-    setFeedback("Store configuration and GST tax rules successfully saved.");
+    if (!isSupabaseConfigured()) {
+      setFeedback("Store configuration and GST tax rules successfully saved.");
+    }
   };
+
+  const dbConfigStatus = getSupabaseConfigStatus();
 
   return (
     <div className="space-y-6">
+      {/* Supabase Connection Status Bar */}
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
+          dbConfigStatus.configured
+            ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+            : "border-amber-200 bg-amber-50/80 text-amber-900"
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              dbConfigStatus.configured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+            }`}
+          />
+          <span>
+            {dbConfigStatus.configured
+              ? `Site Settings Synced with Supabase PostgreSQL: ${dbConfigStatus.url}`
+              : "Database Notice: Supabase credentials not found in environment."}
+          </span>
+        </div>
+        {!dbConfigStatus.configured && (
+          <span className="text-[10px] text-amber-700 bg-amber-100/70 px-2.5 py-1 rounded-full">
+            Missing: {dbConfigStatus.missingFields.join(", ")}
+          </span>
+        )}
+      </div>
+
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <span className="text-[10px] font-bold tracking-[0.16em] text-purple uppercase">System Configuration</span>

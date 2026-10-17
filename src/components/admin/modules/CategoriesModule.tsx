@@ -2,6 +2,12 @@ import { useState, useEffect } from "react";
 import { CategoryMeta } from "../../../types";
 import { db } from "../../../backend/db";
 import { authService } from "../../../backend/authService";
+import { isSupabaseConfigured, getSupabaseConfigStatus } from "../../../lib/supabaseClient";
+import {
+  fetchCategoriesFromSupabase,
+  saveCategoryToSupabase,
+  deleteCategoryFromSupabase,
+} from "../../../backend/supabaseService";
 
 export const DEFAULT_CATEGORIES_META: CategoryMeta[] = [
   {
@@ -62,16 +68,45 @@ export function CategoriesModule() {
   const canManage = authService.can("products:update", currentStaff) || currentStaff.role === "Owner / Super Admin";
 
   useEffect(() => {
-    return db.subscribe(() => {
+    let isMounted = true;
+    if (isSupabaseConfigured()) {
+      fetchCategoriesFromSupabase()
+        .then((cats) => {
+          if (isMounted && cats.length > 0) {
+            setCategories(cats);
+          }
+        })
+        .catch((err) => console.error("Error loading categories from Supabase:", err));
+    }
+
+    const unsub = db.subscribe(() => {
       setProducts([...db.getProducts()]);
-      const s = db.getSettings();
-      if (s.customCategories && s.customCategories.length > 0) {
-        setCategories([...s.customCategories]);
+      if (!isSupabaseConfigured()) {
+        const s = db.getSettings();
+        if (s.customCategories && s.customCategories.length > 0) {
+          setCategories([...s.customCategories]);
+        }
       }
     });
+
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, []);
 
-  const persistCategories = (updatedCategories: CategoryMeta[], actionLog: string) => {
+  const persistCategories = async (updatedCategories: CategoryMeta[], actionLog: string) => {
+    // If Supabase is configured, sync to Supabase PostgreSQL categories table
+    if (isSupabaseConfigured()) {
+      try {
+        for (const cat of updatedCategories) {
+          await saveCategoryToSupabase(cat);
+        }
+      } catch (err: any) {
+        console.error("Supabase category save error:", err);
+      }
+    }
+
     const settings = db.getSettings();
     db.saveSettings(
       {
@@ -193,7 +228,7 @@ export function CategoriesModule() {
     setImagePreview("");
   };
 
-  const handleDeleteCategory = (categoryName: string) => {
+  const handleDeleteCategory = async (categoryName: string) => {
     const linkedProducts = products.filter((p) => p.category === categoryName);
     if (linkedProducts.length > 0) {
       const confirmDelete = confirm(
@@ -209,15 +244,51 @@ export function CategoriesModule() {
       if (!confirm(`Are you sure you want to delete category "${categoryName}"?`)) return;
     }
 
+    if (isSupabaseConfigured()) {
+      try {
+        await deleteCategoryFromSupabase(categoryName);
+      } catch (err: any) {
+        console.error("Error deleting category from Supabase:", err);
+      }
+    }
+
     const updatedList = categories.filter((c) => c.name !== categoryName);
     persistCategories(updatedList, `Deleted Category: ${categoryName}`);
     setSavedMsg(`Category "${categoryName}" removed.`);
   };
 
   const sortedCategories = [...categories].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  const dbConfigStatus = getSupabaseConfigStatus();
 
   return (
     <div className="space-y-6">
+      {/* Supabase Connection Status Bar */}
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
+          dbConfigStatus.configured
+            ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+            : "border-amber-200 bg-amber-50/80 text-amber-900"
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              dbConfigStatus.configured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+            }`}
+          />
+          <span>
+            {dbConfigStatus.configured
+              ? `Categories Synced with Supabase PostgreSQL: ${dbConfigStatus.url}`
+              : "Database Notice: Supabase credentials not found in environment."}
+          </span>
+        </div>
+        {!dbConfigStatus.configured && (
+          <span className="text-[10px] text-amber-700 bg-amber-100/70 px-2.5 py-1 rounded-full">
+            Missing: {dbConfigStatus.missingFields.join(", ")}
+          </span>
+        )}
+      </div>
+
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <span className="text-[10px] font-bold tracking-[0.16em] text-purple uppercase">Store Taxonomy & Navigation</span>
