@@ -66,6 +66,17 @@ export interface StaffUser {
   createdAt: string;
 }
 
+export interface ProductReview {
+  id: string;
+  productId: string;
+  author: string;
+  rating: number;
+  title?: string;
+  comment: string;
+  date: string;
+  verified?: boolean;
+}
+
 export interface ProductItem {
   id: string;
   name: string;
@@ -83,6 +94,15 @@ export interface ProductItem {
   image: string;
   images?: string[]; // Multiple gallery images (Front, Back, Texture, Pack, In Use)
   badge?: string;
+  description?: string;
+  ingredients?: string;
+  directions?: string;
+  warnings?: string;
+  ageGuidance?: string;
+  manufacturer?: string;
+  rating?: number;
+  reviewCount?: number;
+  reviews?: ProductReview[];
   status: "Active" | "Draft" | "Archived";
   createdAt: string;
   updatedAt: string;

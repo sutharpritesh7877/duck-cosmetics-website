@@ -258,6 +258,15 @@ export function ProductsModule() {
       image: primaryImg,
       images: galleryImages,
       badge: ((formData.get("badge") as string) || "").trim(),
+      description: ((formData.get("description") as string) || "").trim(),
+      ingredients: ((formData.get("ingredients") as string) || "").trim(),
+      directions: ((formData.get("directions") as string) || "").trim(),
+      warnings: ((formData.get("warnings") as string) || "").trim(),
+      ageGuidance: ((formData.get("ageGuidance") as string) || "").trim(),
+      manufacturer: ((formData.get("manufacturer") as string) || "").trim(),
+      rating: Number(formData.get("rating") || 4.8),
+      reviewCount: Number(formData.get("reviewCount") || 126),
+      reviews: editProduct?.reviews || [],
       status: (formData.get("status") as any) || "Active",
       createdAt: editProduct?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -503,11 +512,16 @@ export function ProductsModule() {
                           <div>
                             <strong className="block font-semibold text-ink">{product.name}</strong>
                             <span className="text-[10px] text-ink/45 line-clamp-1">{product.detail}</span>
-                            {product.badge && (
-                              <span className="mt-0.5 inline-block rounded bg-purple/10 px-1.5 py-0.5 text-[8px] font-bold text-purple uppercase">
-                                {product.badge}
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {product.badge && (
+                                <span className="inline-block rounded bg-purple/10 px-1.5 py-0.5 text-[8px] font-bold text-purple uppercase">
+                                  {product.badge}
+                                </span>
+                              )}
+                              <span className="text-[9px] font-bold text-amber-600 flex items-center gap-0.5">
+                                ★ {product.rating || 4.8} ({product.reviewCount || 126})
                               </span>
-                            )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -841,6 +855,111 @@ export function ProductsModule() {
                   className="w-full rounded-xl border border-purple/15 p-2.5 outline-none"
                 />
               </label>
+
+              {/* Product Description, Ingredients, Directions, Warnings, Age Guidance, Manufacturer */}
+              <div className="sm:col-span-2 rounded-2xl border border-purple/15 bg-lilac/10 p-5 space-y-4">
+                <div className="border-b border-purple/10 pb-2">
+                  <span className="block font-bold uppercase text-purple text-[10px] tracking-wider">
+                    Detailed Product Specifications & Compliance (Displayed on Storefront Product Page)
+                  </span>
+                  <p className="text-[11px] text-ink/60">
+                    These fields are shown in the interactive accordions and details section on the customer storefront.
+                  </p>
+                </div>
+
+                <label className="block">
+                  <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Full Product Description</span>
+                  <textarea
+                    name="description"
+                    rows={3}
+                    defaultValue={editProduct?.description || ""}
+                    placeholder="Comprehensive overview of benefits, feel, fragrance notes, and skin suitability..."
+                    className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs bg-white"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Ingredients / Key Actives</span>
+                  <textarea
+                    name="ingredients"
+                    rows={3}
+                    defaultValue={editProduct?.ingredients || ""}
+                    placeholder="e.g. Purified Aqua, Organic Aloe Barbadensis, Calendula Officinalis Extract, Colloidal Oat, Vegetable Glycerin..."
+                    className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs bg-white font-mono"
+                  />
+                </label>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Directions for Use / How to Apply</span>
+                    <textarea
+                      name="directions"
+                      rows={3}
+                      defaultValue={editProduct?.directions || ""}
+                      placeholder="e.g. Pump a coin-sized amount onto wet palms. Gently massage in upward circular motions for 30 seconds. Rinse thoroughly with lukewarm water."
+                      className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs bg-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Warnings & Safety Cautions</span>
+                    <textarea
+                      name="warnings"
+                      rows={3}
+                      defaultValue={editProduct?.warnings || ""}
+                      placeholder="e.g. For external use only. Avoid contact with eyes. Perform a 24-hour patch test before initial use. Keep out of reach of direct sunlight."
+                      className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs bg-white"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Age Guidance & Suitability</span>
+                    <input
+                      name="ageGuidance"
+                      defaultValue={editProduct?.ageGuidance || ""}
+                      placeholder="e.g. Suitable for all ages (0+ months infants & toddlers)"
+                      className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs bg-white"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Manufacturer & Pack Information</span>
+                    <input
+                      name="manufacturer"
+                      defaultValue={editProduct?.manufacturer || ""}
+                      placeholder="e.g. Manufactured in India for Duck Care Pvt Ltd. Lic No: GA/1824"
+                      className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs bg-white"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 border-t border-purple/10 pt-3">
+                  <label className="block">
+                    <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Storefront Rating Score (1.0 to 5.0)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="1.0"
+                      max="5.0"
+                      name="rating"
+                      defaultValue={editProduct?.rating || 4.8}
+                      className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs bg-white font-bold text-purple-dark"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Total Reviews Count</span>
+                    <input
+                      type="number"
+                      name="reviewCount"
+                      defaultValue={editProduct?.reviewCount || 126}
+                      className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs bg-white font-bold"
+                    />
+                  </label>
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 border-t border-purple/10 pt-4">

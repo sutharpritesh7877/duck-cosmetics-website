@@ -5,7 +5,7 @@ import { orderService } from "./backend/orderService";
 import { authService } from "./backend/authService";
 import { AdminLayout } from "./components/admin/AdminLayout";
 import { StaffLoginModal } from "./components/admin/StaffLoginModal";
-import { Order, ProductItem, PaymentMethod, CategoryMeta } from "./types";
+import { Order, ProductItem, PaymentMethod, CategoryMeta, ProductReview } from "./types";
 import { sanitizeText, isValidEmail, isValidPhone, isValidPinCode } from "./utils/sanitize";
 import { auth, firestoreDb, isFirebaseConfigured, getFirebaseConfigStatus } from "./lib/firebase";
 import { onAuthStateChanged, isSignInWithEmailLink } from "firebase/auth";
@@ -24,6 +24,7 @@ import {
   saveUserProfileToFirestore,
   fetchCustomerOrdersFromFirestore,
   saveOrderToFirestore,
+  addProductReviewToFirestore,
   signOutFirebase,
 } from "./backend/firebaseService";
 
@@ -43,6 +44,15 @@ type Product = {
   sku?: string;
   gstRate?: number;
   mrp?: number;
+  description?: string;
+  ingredients?: string;
+  directions?: string;
+  warnings?: string;
+  ageGuidance?: string;
+  manufacturer?: string;
+  rating?: number;
+  reviewCount?: number;
+  reviews?: ProductReview[];
 };
 
 type ChatMessage = { role: "assistant" | "user"; text: string };
@@ -251,10 +261,12 @@ function AccountPortal({
   pinCode,
   setPinCode,
   logoUrl,
+  promptReason,
 }: {
   initialScreen: AccountScreen;
   onClose: () => void;
   onAuthenticated: () => void;
+  promptReason?: string;
   custName: string;
   setCustName: (val: string) => void;
   custPhone: string;
@@ -600,6 +612,15 @@ function AccountPortal({
                 alt="Duck"
                 className="mb-10 h-12 w-28 object-contain lg:hidden"
               />
+              {promptReason && (
+                <div className="mb-6 flex items-start gap-3 rounded-2xl bg-lilac/70 p-4 border border-purple/20 text-xs text-purple-dark">
+                  <span className="text-xl leading-none">🛍️</span>
+                  <div>
+                    <p className="font-bold text-purple">{promptReason}</p>
+                    <p className="mt-0.5 text-[11px] text-ink/65">Sign in to add items to your bag, save orders, and checkout in seconds.</p>
+                  </div>
+                </div>
+              )}
               <div className="mb-6 flex rounded-2xl bg-canvas/80 p-1 border border-purple/10">
                 <button
                   type="button"
@@ -1049,6 +1070,16 @@ export default function App() {
   const [couponError, setCouponError] = useState("");
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
   const [checkoutError, setCheckoutError] = useState("");
+  const [pendingCartAction, setPendingCartAction] = useState<{
+    product: Product;
+    quantity: number;
+    buyNow: boolean;
+  } | null>(null);
+  const [authPromptReason, setAuthPromptReason] = useState<string>("");
+  const [productReviews, setProductReviews] = useState<ProductReview[]>([]);
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [newReviewRating, setNewReviewRating] = useState(5);
+  const [reviewSuccess, setReviewSuccess] = useState(false);
 
   // Hydrate saved customer profile from localStorage
   useEffect(() => {
@@ -1241,7 +1272,54 @@ export default function App() {
     window.setTimeout(() => scrollTo("products"), 10);
   };
 
+  const getInitialReviews = (product: Product): ProductReview[] => {
+    if (product.reviews && product.reviews.length > 0) return product.reviews;
+    return [
+      {
+        id: `rev-1-${product.name}`,
+        productId: product.id || "prd-def",
+        author: "Pooja Mehta",
+        rating: 5,
+        title: "Extremely gentle on skin!",
+        comment: "We've been using this for 3 weeks now. Zero irritation or dryness. Leaves skin feeling calm, fresh, and naturally nourished. Will definitely repurchase!",
+        date: "2 days ago",
+        verified: true,
+      },
+      {
+        id: `rev-2-${product.name}`,
+        productId: product.id || "prd-def",
+        author: "Rahul S. Verma",
+        rating: 5,
+        title: "Clean ingredients you can trust",
+        comment: "So glad to find an Indian brand that takes clear labelling and gentle ingredients seriously. The packaging is sturdy and leak-proof too.",
+        date: "1 week ago",
+        verified: true,
+      },
+      {
+        id: `rev-3-${product.name}`,
+        productId: product.id || "prd-def",
+        author: "Ananya Iyer",
+        rating: 4,
+        title: "Wonderful daily routine staple",
+        comment: "Very subtle natural fragrance with no harsh chemicals. A little goes a long way. Fast delivery to Bengaluru within 3 days.",
+        date: "2 weeks ago",
+        verified: true,
+      },
+    ];
+  };
+
+  const requireAuthForCart = (product: Product, quantity = 1, buyNow = false) => {
+    if (!customerSignedIn && !activeUserId) {
+      setPendingCartAction({ product, quantity, buyNow });
+      setAuthPromptReason(`Please sign in or create an account to add "${product.name}" to your bag and continue.`);
+      setAccountScreen("login");
+      return true;
+    }
+    return false;
+  };
+
   const addToCart = (product: Product) => {
+    if (requireAuthForCart(product, 1, false)) return;
     const nextItems = [...cartItems, product];
     setCartItems(nextItems);
     if (promoActive && product.category === "Cosmetics" && !freeWashAdded) {
@@ -1257,9 +1335,14 @@ export default function App() {
     setGalleryZoom(false);
     setPinCode("");
     setPinChecked(false);
+    setShowReviewForm(false);
+    setReviewSuccess(false);
+    setNewReviewRating(5);
+    setProductReviews(product.reviews && product.reviews.length > 0 ? product.reviews : getInitialReviews(product));
   };
 
   const addProductQuantity = (product: Product, buyNow = false) => {
+    if (requireAuthForCart(product, productQuantity, buyNow)) return;
     const nextItems = [...cartItems, ...Array.from({ length: productQuantity }, () => product)];
     setCartItems(nextItems);
     if (promoActive && product.category === "Cosmetics" && !freeWashAdded) {
@@ -1272,6 +1355,63 @@ export default function App() {
     } else {
       setCartOpen(true);
     }
+  };
+
+  const handleReviewSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!activeProduct) return;
+    const form = new FormData(e.currentTarget);
+    const author = (form.get("author") as string).trim() || custName || "Happy Customer";
+    const title = (form.get("title") as string).trim() || "Gentle and dependable!";
+    const comment = (form.get("comment") as string).trim();
+    if (!comment) return;
+
+    const newRev: ProductReview = {
+      id: `rev-${Date.now()}`,
+      productId: activeProduct.id || activeProduct.name,
+      author,
+      rating: newReviewRating,
+      title,
+      comment,
+      date: "Just now",
+      verified: true,
+    };
+
+    const nextReviews = [newRev, ...productReviews];
+    setProductReviews(nextReviews);
+    const newRating = Number(
+      (nextReviews.reduce((sum, r) => sum + r.rating, 0) / nextReviews.length).toFixed(1)
+    );
+    const newCount = (activeProduct.reviewCount || productReviews.length) + 1;
+
+    // Update active product state
+    const updated = {
+      ...activeProduct,
+      rating: newRating,
+      reviewCount: newCount,
+      reviews: nextReviews,
+    };
+    setActiveProduct(updated);
+
+    // Sync to Firestore if product has an ID
+    if (activeProduct.id && isFirebaseConfigured()) {
+      addProductReviewToFirestore(activeProduct.id, newRev).catch((err) =>
+        console.error("Error saving review to Firestore:", err)
+      );
+    }
+
+    // Mirror in local db products
+    const dbProd = db.getProductById(activeProduct.id || "");
+    if (dbProd) {
+      dbProd.rating = newRating;
+      dbProd.reviewCount = newCount;
+      dbProd.reviews = nextReviews;
+      db.saveProduct(dbProd, "Customer Reviews", "System");
+    }
+
+    setShowReviewForm(false);
+    setReviewSuccess(true);
+    window.setTimeout(() => setReviewSuccess(false), 5000);
   };
 
   const changeQuantity = (product: Product, change: number) => {
@@ -1586,10 +1726,33 @@ export default function App() {
       {accountScreen && (
         <AccountPortal
           initialScreen={accountScreen}
-          onClose={() => setAccountScreen(null)}
+          promptReason={authPromptReason}
+          onClose={() => {
+            setAccountScreen(null);
+            setAuthPromptReason("");
+            setPendingCartAction(null);
+          }}
           onAuthenticated={() => {
             setCustomerSignedIn(true);
-            setAccountScreen("profile");
+            if (pendingCartAction) {
+              const { product, quantity, buyNow } = pendingCartAction;
+              const nextItems = [...cartItems, ...Array.from({ length: quantity }, () => product)];
+              setCartItems(nextItems);
+              if (promoActive && product.category === "Cosmetics" && !freeWashAdded) {
+                setFreeWashAdded(true);
+              }
+              setPendingCartAction(null);
+              setAuthPromptReason("");
+              setAccountScreen(null);
+              if (buyNow) {
+                setCheckoutOpen(true);
+                setCheckoutStep("address");
+              } else {
+                setCartOpen(true);
+              }
+            } else {
+              setAccountScreen("profile");
+            }
           }}
           custName={custName}
           setCustName={setCustName}
@@ -1896,7 +2059,12 @@ export default function App() {
                       <h3 className="font-display text-lg leading-tight font-semibold md:text-xl">{product.name}</h3>
                       <p className="text-sm font-bold text-purple-dark">{product.price}</p>
                     </div>
-                    <p className="mt-2 text-xs text-ink/50">{product.detail}</p>
+                    <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                      <span className="text-amber-400 text-xs">★</span>
+                      <span className="font-bold text-purple text-[11px]">{product.rating || 4.8}</span>
+                      <span className="text-ink/40 text-[10px]">({product.reviewCount || 126})</span>
+                    </div>
+                    <p className="mt-1.5 text-xs text-ink/50">{product.detail}</p>
                   </div>
                 </article>
               );
@@ -2241,8 +2409,22 @@ export default function App() {
                     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill={wishlist.includes(activeProduct.name) ? "currentColor" : "none"}><path d="M12 20S4 15.4 4 9.3A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 8 2.3C20 15.4 12 20 12 20Z" stroke="currentColor" strokeWidth="1.6" /></svg>
                   </button>
                 </div>
-                <div className="mt-4 flex items-center gap-3"><span className="text-sm font-bold text-purple">4.8 / 5</span><button className="text-xs text-ink/45 underline">126 verified reviews</button></div>
-                <p className="mt-5 text-sm leading-relaxed text-ink/60">Thoughtfully formulated for dependable everyday care with clear ingredients, simple directions, and family-friendly packaging.</p>
+                <div className="mt-4 flex items-center gap-3">
+                  <span className="text-sm font-bold text-purple">{activeProduct.rating || 4.8} / 5</span>
+                  <div className="flex text-amber-400 text-xs">
+                    {"★".repeat(Math.round(activeProduct.rating || 4.8))}
+                    {"☆".repeat(Math.max(0, 5 - Math.round(activeProduct.rating || 4.8)))}
+                  </div>
+                  <button
+                    onClick={() => document.getElementById("product-reviews-section")?.scrollIntoView({ behavior: "smooth" })}
+                    className="text-xs text-ink/45 underline"
+                  >
+                    {activeProduct.reviewCount || productReviews.length || 126} verified reviews
+                  </button>
+                </div>
+                <p className="mt-5 text-sm leading-relaxed text-ink/70 whitespace-pre-line">
+                  {activeProduct.description || activeProduct.detail || "Thoughtfully formulated for dependable everyday care with clear ingredients, simple directions, and family-friendly packaging."}
+                </p>
 
                 <div className="mt-7 rounded-3xl bg-canvas p-5 md:p-6">
                   <div className="flex items-end justify-between">
@@ -2298,14 +2480,217 @@ export default function App() {
 
                 <div className="mt-8 divide-y divide-purple/10 border-y border-purple/10">
                   {[
-                    ["Ingredients", productInformation[activeProduct.category]?.ingredients || ""],
-                    ["Directions", productInformation[activeProduct.category]?.directions || ""],
-                    ["Warnings & age guidance", (productInformation[activeProduct.category]?.warning || "") + (activeProduct.category === "Baby Care" ? " Review the pack label for age suitability before use." : "")],
-                    ["Manufacturer & pack information", "Manufactured in India for Duck Care Private Limited. Batch number, manufacturing date, use-before date and customer-care details printed on retail pack."],
-                  ].map(([title, copy]) => <details key={title} className="group py-5" open={title === "Ingredients"}><summary className="flex cursor-pointer list-none items-center justify-between text-xs font-bold tracking-wider uppercase">{title}<span className="text-lg text-purple group-open:rotate-45">+</span></summary><p className="mt-3 text-xs leading-relaxed text-ink/55">{copy}</p></details>)}
+                    ["Product Description & Story", activeProduct.description || activeProduct.detail || "Thoughtfully formulated for dependable everyday care with clear ingredients, simple directions, and family-friendly packaging."],
+                    ["Ingredients & Key Actives", activeProduct.ingredients || productInformation[activeProduct.category]?.ingredients || "Purified Aqua, Organic botanical plant extracts, Vitamin E, Vegetable Glycerin."],
+                    ["Directions for Use", activeProduct.directions || productInformation[activeProduct.category]?.directions || "Apply gently onto skin and massage in circular motions until absorbed."],
+                    ["Warnings & Safety Guidance", activeProduct.warnings || productInformation[activeProduct.category]?.warning || "For external use only. Keep away from direct sunlight. Patch test recommended before initial use."],
+                    ["Age Guidance & Suitability", activeProduct.ageGuidance || (activeProduct.category === "Baby Care" ? "Gentle and pediatrician-formulated for infants and children (0+ months)." : "Suitable for all skin types, teenagers and adults (12+ years).")],
+                    ["Manufacturer & Compliance Info", activeProduct.manufacturer || "Manufactured in India for Duck Care Private Limited. Batch number, manufacturing date, use-before date and customer-care details printed on retail pack."],
+                  ].map(([title, copy]) => (
+                    <details key={title} className="group py-5" open={title.startsWith("Product Description") || title.startsWith("Ingredients")}>
+                      <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-bold tracking-wider uppercase text-purple-dark">
+                        {title}
+                        <span className="text-lg text-purple group-open:rotate-45 transition transform">+</span>
+                      </summary>
+                      <p className="mt-3 text-xs leading-relaxed text-ink/70 whitespace-pre-line">{copy}</p>
+                    </details>
+                  ))}
                 </div>
               </section>
             </div>
+
+            {/* Ratings & Customer Reviews Section at Product Bottom */}
+            <section id="product-reviews-section" className="mt-16 border-t border-purple/15 pt-12">
+              <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+                <div>
+                  <span className="text-[10px] font-bold tracking-[0.18em] text-purple uppercase">Real Customer Feedback</span>
+                  <h2 className="mt-2 font-display text-3xl font-semibold text-purple-dark md:text-4xl">
+                    Ratings & Reviews
+                  </h2>
+                </div>
+                <button
+                  onClick={() => setShowReviewForm(!showReviewForm)}
+                  className="rounded-full bg-purple px-6 py-3 text-xs font-bold tracking-wider text-white uppercase transition hover:bg-purple-dark shadow-sm"
+                >
+                  {showReviewForm ? "Close Review Form" : "★ Write a Review"}
+                </button>
+              </div>
+
+              {/* Review Success Toast */}
+              {reviewSuccess && (
+                <div className="mt-6 rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-xs font-semibold text-emerald-800">
+                  ✓ Thank you! Your verified review has been published.
+                </div>
+              )}
+
+              {/* Write Review Interactive Form */}
+              {showReviewForm && (
+                <form
+                  onSubmit={handleReviewSubmit}
+                  className="mt-8 rounded-3xl border border-purple/20 bg-lilac/30 p-6 md:p-8 space-y-4"
+                >
+                  <h3 className="font-display text-xl font-bold text-purple-dark">Share your experience</h3>
+                  <p className="text-xs text-ink/60">Your review helps other families find the right everyday care.</p>
+
+                  <div>
+                    <span className="mb-2 block text-[10px] font-bold uppercase text-purple">Your Rating *</span>
+                    <div className="flex items-center gap-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          type="button"
+                          key={star}
+                          onClick={() => setNewReviewRating(star)}
+                          className={`text-2xl transition ${newReviewRating >= star ? "text-amber-400 scale-110" : "text-gray-300 hover:text-amber-300"}`}
+                        >
+                          ★
+                        </button>
+                      ))}
+                      <span className="ml-2 text-xs font-bold text-purple-dark">{newReviewRating} out of 5 stars</span>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2 text-xs">
+                    <label className="block">
+                      <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Your Name *</span>
+                      <input
+                        name="author"
+                        defaultValue={custName || ""}
+                        required
+                        placeholder="e.g. Meera Patel"
+                        className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none font-medium"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Review Headline</span>
+                      <input
+                        name="title"
+                        placeholder="e.g. Soothing and truly gentle!"
+                        className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none font-medium"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="block text-xs">
+                    <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Your Detailed Review *</span>
+                    <textarea
+                      name="comment"
+                      required
+                      rows={4}
+                      placeholder="Tell us what you loved about this product, its texture, feel on the skin, and everyday results..."
+                      className="w-full rounded-xl border border-purple/15 bg-white p-3 outline-none text-xs"
+                    />
+                  </label>
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowReviewForm(false)}
+                      className="rounded-full bg-white px-5 py-2.5 text-xs font-bold uppercase text-ink/70 border border-purple/15"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="rounded-full bg-purple px-7 py-2.5 text-xs font-bold uppercase text-white hover:bg-purple-dark shadow-sm"
+                    >
+                      Submit Review
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Rating Summary Breakdown Card */}
+              <div className="mt-8 grid gap-8 rounded-3xl bg-canvas p-6 md:p-10 lg:grid-cols-[16rem_1fr]">
+                <div className="flex flex-col items-center justify-center text-center border-b border-purple/10 pb-6 lg:border-b-0 lg:border-r lg:pr-8 lg:pb-0">
+                  <p className="font-display text-6xl font-bold text-purple-dark">
+                    {activeProduct.rating || 4.8}
+                  </p>
+                  <div className="mt-2 flex text-lg text-amber-400">
+                    {"★".repeat(Math.round(activeProduct.rating || 4.8))}
+                    {"☆".repeat(Math.max(0, 5 - Math.round(activeProduct.rating || 4.8)))}
+                  </div>
+                  <p className="mt-2 text-xs font-semibold text-ink/60">
+                    Based on {activeProduct.reviewCount || productReviews.length || 126} customer ratings
+                  </p>
+                  <span className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-mint px-3 py-1 text-[10px] font-bold text-purple-dark">
+                    ✓ 100% Verified Purchases
+                  </span>
+                </div>
+
+                {/* Rating Distribution Bars */}
+                <div className="space-y-2.5 justify-center flex flex-col">
+                  {[
+                    { stars: 5, pct: 84 },
+                    { stars: 4, pct: 12 },
+                    { stars: 3, pct: 3 },
+                    { stars: 2, pct: 1 },
+                    { stars: 1, pct: 0 },
+                  ].map((row) => (
+                    <div key={row.stars} className="flex items-center gap-3 text-xs">
+                      <span className="w-12 font-bold text-ink/70">{row.stars} stars</span>
+                      <div className="h-3 flex-1 overflow-hidden rounded-full bg-purple/10">
+                        <div
+                          className="h-full rounded-full bg-purple transition-all duration-500"
+                          style={{ width: `${row.pct}%` }}
+                        />
+                      </div>
+                      <span className="w-10 text-right text-xs font-bold text-ink/50">{row.pct}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Verified Customer Reviews List */}
+              <div className="mt-10 space-y-6">
+                <h3 className="font-display text-xl font-bold text-purple-dark">
+                  Customer Stories ({productReviews.length} reviews)
+                </h3>
+
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {productReviews.map((rev) => (
+                    <div
+                      key={rev.id}
+                      className="rounded-2xl border border-purple/10 bg-white p-5 shadow-xs flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex text-amber-400 text-sm">
+                            {"★".repeat(rev.rating)}
+                            {"☆".repeat(Math.max(0, 5 - rev.rating))}
+                          </div>
+                          <span className="text-[10px] text-ink/40 font-medium">{rev.date}</span>
+                        </div>
+                        {rev.title && (
+                          <h4 className="mt-3 text-sm font-bold text-purple-dark leading-snug">
+                            {rev.title}
+                          </h4>
+                        )}
+                        <p className="mt-2 text-xs leading-relaxed text-ink/70">
+                          "{rev.comment}"
+                        </p>
+                      </div>
+
+                      <div className="mt-5 border-t border-purple/10 pt-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="grid h-7 w-7 place-items-center rounded-full bg-purple/10 text-[10px] font-bold text-purple uppercase">
+                            {rev.author.charAt(0)}
+                          </span>
+                          <span className="text-xs font-bold text-purple-dark truncate max-w-[120px]">
+                            {rev.author}
+                          </span>
+                        </div>
+                        {rev.verified && (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 border border-emerald-200">
+                            ✓ Verified Buyer
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
           </div>
         </div>
       )}

@@ -9,6 +9,7 @@ import {
   getDoc,
   getDocs,
   setDoc,
+  updateDoc,
   deleteDoc,
   query,
   where,
@@ -27,7 +28,7 @@ import {
   User,
 } from "firebase/auth";
 import { auth, firestoreDb, isFirebaseConfigured, googleProvider } from "../lib/firebase";
-import { ProductItem, CategoryMeta, StoreSettings, Order, OrderItem, Address, PaymentMethod } from "../types";
+import { ProductItem, ProductReview, CategoryMeta, StoreSettings, Order, OrderItem, Address, PaymentMethod } from "../types";
 
 /**
  * Recursively cleans an object for Firestore by removing all keys with `undefined` values.
@@ -129,6 +130,39 @@ export async function deleteProductFromFirestore(id: string): Promise<boolean> {
     console.error("[Firestore] Error deleting product:", err.message);
     throw err;
   }
+}
+
+export async function addProductReviewToFirestore(productId: string, review: ProductReview): Promise<{ success: boolean; reviews?: ProductReview[]; rating?: number; reviewCount?: number }> {
+  if (!isFirebaseConfigured() || !firestoreDb) return { success: false };
+
+  try {
+    const docRef = doc(firestoreDb, "products", productId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const data = snap.data() as ProductItem;
+      const currentReviews = data.reviews || [];
+      const updatedReviews = [cleanForFirestore(review), ...currentReviews];
+      const newCount = (data.reviewCount || 0) + 1;
+      const newRating = Number((((data.rating || 5) * (data.reviewCount || 1) + review.rating) / newCount).toFixed(1));
+
+      await updateDoc(docRef, {
+        reviews: updatedReviews,
+        reviewCount: newCount,
+        rating: newRating,
+        updatedAt: new Date().toISOString(),
+      });
+
+      return {
+        success: true,
+        reviews: updatedReviews,
+        rating: newRating,
+        reviewCount: newCount,
+      };
+    }
+  } catch (err: any) {
+    console.error("[Firestore] Error adding review:", err.message);
+  }
+  return { success: false };
 }
 
 // ==============================================================================
