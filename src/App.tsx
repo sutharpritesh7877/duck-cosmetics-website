@@ -7,19 +7,24 @@ import { AdminLayout } from "./components/admin/AdminLayout";
 import { StaffLoginModal } from "./components/admin/StaffLoginModal";
 import { Order, ProductItem, PaymentMethod, CategoryMeta } from "./types";
 import { sanitizeText, isValidEmail, isValidPhone, isValidPinCode } from "./utils/sanitize";
-import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from "./lib/supabaseClient";
+import { auth, firestoreDb, isFirebaseConfigured, getFirebaseConfigStatus } from "./lib/firebase";
+import { onAuthStateChanged, isSignInWithEmailLink } from "firebase/auth";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 import {
-  fetchActiveProductsFromSupabase,
-  fetchCategoriesFromSupabase,
-  fetchSiteSettingsFromSupabase,
-  placeOrderToSupabase,
-  sendEmailOtp,
-  verifyEmailOtp,
-  fetchUserProfile,
-  updateUserProfile,
-  fetchCustomerOrdersFromSupabase,
-  signOutSupabase,
-} from "./backend/supabaseService";
+  fetchActiveProductsFromFirestore,
+  fetchCategoriesFromFirestore,
+  fetchSiteSettingsFromFirestore,
+  placeOrderToFirestore,
+  signUpWithEmailPassword,
+  loginWithEmailPassword,
+  loginWithGoogle,
+  sendEmailMagicLink,
+  completeEmailMagicLink,
+  fetchUserProfileFromFirestore,
+  saveUserProfileToFirestore,
+  fetchCustomerOrdersFromFirestore,
+  signOutFirebase,
+} from "./backend/firebaseService";
 
 type Category = string;
 
@@ -275,48 +280,78 @@ function AccountPortal({
   const [returnSuccess, setReturnSuccess] = useState("");
   const [profileSuccess, setProfileSuccess] = useState("");
 
-  // Supabase Auth State
+  // Firebase Auth State
+  const [authMode, setAuthMode] = useState<"signin" | "signup" | "magic">("signin");
   const [authEmailInput, setAuthEmailInput] = useState(custEmail || "");
-  const [authOtpInput, setAuthOtpInput] = useState("");
+  const [authPasswordInput, setAuthPasswordInput] = useState("");
+  const [authNameInput, setAuthNameInput] = useState(custName || "");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authInfo, setAuthInfo] = useState("");
-  const [supabaseUser, setSupabaseUser] = useState<any>(null);
+  const [firebaseUser, setFirebaseUser] = useState<any>(null);
 
-  // Load active session and Supabase profile
+  // Load active session and Firebase profile
   useEffect(() => {
-    if (isSupabaseConfigured()) {
-      supabase.auth.getUser().then(({ data }) => {
-        if (data?.user) {
-          setSupabaseUser(data.user);
-          fetchUserProfile(data.user.id).then((p) => {
-            if (p) {
-              if (p.full_name) setCustName(p.full_name);
-              if (p.email) setCustEmail(p.email);
-              if (p.phone) setCustPhone(p.phone);
-              if (p.address_line1) setCustAddress1(p.address_line1);
-              if (p.address_line2) setCustAddress2(p.address_line2);
-              if (p.city) setCustCity(p.city);
-              if (p.state) setCustState(p.state);
-              if (p.pincode) setPinCode(p.pincode);
-            }
-          });
-          // Also fetch customer orders directly from Supabase
-          fetchCustomerOrdersFromSupabase(data.user.id).then((orders) => {
-            if (orders && orders.length > 0) {
-              setCustomerOrders(orders);
+    let unsubAuth: (() => void) | undefined;
+    if (isFirebaseConfigured() && auth) {
+      unsubAuth = onAuthStateChanged(auth, async (user) => {
+        if (user) {
+          setFirebaseUser(user);
+          if (user.email) setCustEmail(user.email);
+          if (user.displayName && !custName) setCustName(user.displayName);
+
+          const p: any = await fetchUserProfileFromFirestore(user.uid);
+          if (p) {
+            if (p.fullName) setCustName(p.fullName);
+            if (p.email) setCustEmail(p.email);
+            if (p.phone) setCustPhone(p.phone);
+            if (p.address_line1) setCustAddress1(p.address_line1);
+            if (p.address_line2) setCustAddress2(p.address_line2);
+            if (p.city) setCustCity(p.city);
+            if (p.state) setCustState(p.state);
+            if (p.pincode) setPinCode(p.pincode);
+          }
+
+          const orders = await fetchCustomerOrdersFromFirestore(user.uid);
+          if (orders && orders.length > 0) {
+            setCustomerOrders(orders);
+          }
+        } else {
+          setFirebaseUser(null);
+        }
+      });
+
+      // Check if user clicked an incoming Magic Link in their email
+      if (isSignInWithEmailLink(auth, window.location.href)) {
+        let emailToUse = window.localStorage.getItem("emailForSignIn") || custEmail;
+        if (!emailToUse) {
+          emailToUse = window.prompt("Please confirm your email address to complete signing in:") || "";
+        }
+        if (emailToUse) {
+          setAuthLoading(true);
+          completeEmailMagicLink(emailToUse, window.location.href).then((res) => {
+            setAuthLoading(false);
+            if (res.success && res.user) {
+              setFirebaseUser(res.user);
+              onAuthenticated();
+              setScreen("profile");
             }
           });
         }
-      });
+      }
     }
 
-    return db.subscribe(() => {
+    const unsubDb = db.subscribe(() => {
       setCustomerOrders([...db.getOrders()]);
     });
+
+    return () => {
+      if (unsubAuth) unsubAuth();
+      unsubDb();
+    };
   }, []);
 
-  const handleSendOtp = async (e: React.FormEvent) => {
+  const handleEmailPasswordAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError("");
     setAuthInfo("");
@@ -325,76 +360,109 @@ function AccountPortal({
       setAuthError("Please provide a valid email address.");
       return;
     }
+    if (!authPasswordInput || authPasswordInput.length < 6) {
+      setAuthError("Password must be at least 6 characters.");
+      return;
+    }
+
     setAuthLoading(true);
     setCustEmail(targetEmail);
 
-    if (isSupabaseConfigured()) {
+    if (isFirebaseConfigured()) {
       try {
-        const res = await sendEmailOtp(targetEmail);
-        setAuthLoading(false);
-        if (res.success) {
-          setAuthInfo(`A 6-digit one-time password has been sent to ${targetEmail}. Check your email.`);
-          setScreen("verify");
+        if (authMode === "signup") {
+          const res = await signUpWithEmailPassword(targetEmail, authPasswordInput, authNameInput.trim());
+          setAuthLoading(false);
+          if (res.success && res.user) {
+            setFirebaseUser(res.user);
+            if (authNameInput.trim()) setCustName(authNameInput.trim());
+            onAuthenticated();
+            setScreen("profile");
+          }
         } else {
-          setAuthError(res.message);
+          const res = await loginWithEmailPassword(targetEmail, authPasswordInput);
+          setAuthLoading(false);
+          if (res.success && res.user) {
+            setFirebaseUser(res.user);
+            onAuthenticated();
+            setScreen("profile");
+          }
         }
       } catch (err: any) {
         setAuthLoading(false);
-        setAuthError(err.message || "Failed to send OTP");
+        setAuthError(err.message || "Authentication failed. Please check your credentials.");
       }
     } else {
       setAuthLoading(false);
-      setAuthInfo("Supabase not connected. Prototype Mode: Enter 123456 to verify (or add Supabase keys to .env).");
-      setScreen("verify");
+      // Prototype Mode fallback
+      if (authNameInput.trim()) setCustName(authNameInput.trim());
+      onAuthenticated();
+      setScreen("profile");
     }
   };
 
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGoogleSignIn = async () => {
     setAuthError("");
-    const token = authOtpInput.trim();
-    if (token.length < 6) {
-      setAuthError("Please enter the 6-digit verification code.");
+    setAuthInfo("");
+    if (!isFirebaseConfigured()) {
+      setAuthError("Firebase not configured. Please add VITE_FIREBASE_API_KEY in .env to use Google Login.");
       return;
     }
     setAuthLoading(true);
-
-    if (isSupabaseConfigured()) {
-      try {
-        const res = await verifyEmailOtp(custEmail.trim(), token);
-        setAuthLoading(false);
-        if (res.success) {
-          setSupabaseUser(res.user);
-          if (res.profile) {
-            if (res.profile.full_name) setCustName(res.profile.full_name);
-            if (res.profile.phone) setCustPhone(res.profile.phone);
-            if (res.profile.address_line1) setCustAddress1(res.profile.address_line1);
-            if (res.profile.address_line2) setCustAddress2(res.profile.address_line2);
-            if (res.profile.city) setCustCity(res.profile.city);
-            if (res.profile.state) setCustState(res.profile.state);
-            if (res.profile.pincode) setPinCode(res.profile.pincode);
-          }
-          onAuthenticated();
-          setScreen("profile");
-        } else {
-          setAuthError(res.message);
-        }
-      } catch (err: any) {
-        setAuthLoading(false);
-        setAuthError(err.message || "Verification failed");
-      }
-    } else {
+    try {
+      const res = await loginWithGoogle();
       setAuthLoading(false);
-      if (token === "123456") {
+      if (res.success && res.user) {
+        setFirebaseUser(res.user);
+        if (res.user.displayName) setCustName(res.user.displayName);
+        if (res.user.email) setCustEmail(res.user.email);
         onAuthenticated();
         setScreen("profile");
-      } else {
-        setAuthError("Invalid code. In prototype mode, use 123456.");
       }
+    } catch (err: any) {
+      setAuthLoading(false);
+      setAuthError(err.message || "Google Sign-In was cancelled or failed.");
     }
   };
 
-  // RLS Data Isolation: A customer only sees their own historical order records
+  const handleSendMagicLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthInfo("");
+    const targetEmail = authEmailInput.trim();
+    if (!isValidEmail(targetEmail)) {
+      setAuthError("Please enter a valid email address.");
+      return;
+    }
+    setAuthLoading(true);
+    setCustEmail(targetEmail);
+
+    if (isFirebaseConfigured()) {
+      try {
+        const res = await sendEmailMagicLink(targetEmail);
+        setAuthLoading(false);
+        setAuthInfo(res.message);
+      } catch (err: any) {
+        setAuthLoading(false);
+        setAuthError(err.message || "Failed to send magic link. Check Firebase Auth settings.");
+      }
+    } else {
+      setAuthLoading(false);
+      setAuthInfo("Firebase not configured. Prototype Mode: You are now signed in!");
+      onAuthenticated();
+      setScreen("profile");
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (isFirebaseConfigured()) {
+      await signOutFirebase();
+    }
+    setFirebaseUser(null);
+    setScreen("login");
+  };
+
+  // Data Isolation: A customer only sees their own historical order records
   const myOrders = customerOrders.filter((ord) => {
     if (!custEmail && !custPhone) return true;
     const matchEmail = custEmail && ord.customerEmail.trim().toLowerCase() === custEmail.trim().toLowerCase();
@@ -413,10 +481,10 @@ function AccountPortal({
     const safeState = sanitizeText(custState, 50);
     const safePin = sanitizeText(pinCode, 10);
 
-    // Save to Supabase profiles table if connected
-    if (isSupabaseConfigured() && supabaseUser?.id) {
-      await updateUserProfile(supabaseUser.id, {
-        full_name: safeName,
+    // Save to Firebase Firestore profiles collection if connected
+    if (isFirebaseConfigured() && firebaseUser?.uid) {
+      await saveUserProfileToFirestore(firebaseUser.uid, {
+        fullName: safeName,
         phone: safePhone,
         address_line1: safeAddr1,
         address_line2: safeAddr2,
@@ -531,115 +599,180 @@ function AccountPortal({
                 alt="Duck"
                 className="mb-10 h-12 w-28 object-contain lg:hidden"
               />
-              {(screen === "login" || screen === "signup") && (
-                <>
-                  <p className="text-[9px] font-bold tracking-[0.16em] text-purple uppercase">Passwordless Access</p>
-                  <h1 className="mt-2 font-display text-4xl sm:text-5xl font-semibold">Sign in with Email OTP</h1>
-                  <p className="mt-3 text-sm text-ink/50">
-                    We'll send a secure 6-digit one-time code to your email. No passwords needed.
-                  </p>
+              <div className="mb-6 flex rounded-2xl bg-canvas/80 p-1 border border-purple/10">
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthInfo(""); }}
+                  className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
+                    authMode === "signin" ? "bg-purple text-white shadow-xs" : "text-ink/60 hover:text-purple"
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthInfo(""); }}
+                  className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
+                    authMode === "signup" ? "bg-purple text-white shadow-xs" : "text-ink/60 hover:text-purple"
+                  }`}
+                >
+                  Create Account
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode("magic"); setAuthError(""); setAuthInfo(""); }}
+                  className={`flex-1 rounded-xl py-2 text-xs font-bold transition ${
+                    authMode === "magic" ? "bg-purple text-white shadow-xs" : "text-ink/60 hover:text-purple"
+                  }`}
+                >
+                  Magic Link
+                </button>
+              </div>
 
-                  {authError && (
-                    <div className="mt-4 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-600">
-                      ⚠ {authError}
-                    </div>
-                  )}
+              <p className="text-[9px] font-bold tracking-[0.16em] text-purple uppercase">
+                {authMode === "signup" ? "New Customer" : authMode === "magic" ? "Passwordless Login" : "Customer Access"}
+              </p>
+              <h1 className="mt-2 font-display text-4xl sm:text-5xl font-semibold">
+                {authMode === "signup" ? "Create your Duck account" : authMode === "magic" ? "Sign in with Magic Link" : "Welcome back"}
+              </h1>
+              <p className="mt-2 text-sm text-ink/50">
+                {authMode === "signup"
+                  ? "Register to track orders, save shipping addresses, and unlock free gifts."
+                  : authMode === "magic"
+                  ? "We'll email you a secure one-click sign-in link with no password needed."
+                  : "Sign in with your email & password or use Google for one-click access."}
+              </p>
 
-                  <form onSubmit={handleSendOtp} className="mt-6 space-y-4">
+              {/* Google Sign In Button */}
+              <button
+                type="button"
+                disabled={authLoading}
+                onClick={handleGoogleSignIn}
+                className="mt-6 flex w-full items-center justify-center gap-3 rounded-full border border-purple/20 bg-white py-3.5 text-xs font-bold text-purple-dark shadow-xs transition hover:bg-lilac/30 disabled:opacity-50"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                  />
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+
+              <div className="relative my-6 flex items-center justify-center">
+                <div className="w-full border-t border-purple/15" />
+                <span className="absolute bg-white px-3 text-[10px] font-bold text-ink/40 uppercase tracking-wider">
+                  Or continue with email
+                </span>
+              </div>
+
+              {authInfo && (
+                <div className="mb-4 rounded-xl bg-mint/50 p-3 text-xs font-semibold text-purple-dark">
+                  ✓ {authInfo}
+                </div>
+              )}
+
+              {authError && (
+                <div className="mb-4 rounded-xl bg-red-50 p-3 text-xs font-bold text-red-600">
+                  ⚠ {authError}
+                </div>
+              )}
+
+              {authMode === "magic" ? (
+                <form onSubmit={handleSendMagicLink} className="space-y-4">
+                  <label className="block">
+                    <span className="mb-2 block text-[9px] font-bold uppercase">Your Email Address</span>
+                    <input
+                      type="email"
+                      required
+                      value={authEmailInput}
+                      onChange={(e) => setAuthEmailInput(e.target.value)}
+                      placeholder="you@example.com"
+                      className="checkout-input font-medium"
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={authLoading}
+                    className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase transition hover:bg-purple-dark disabled:opacity-50"
+                  >
+                    {authLoading ? "Sending Link..." : "Send Magic Sign-In Link"}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleEmailPasswordAuth} className="space-y-4">
+                  {authMode === "signup" && (
                     <label className="block">
-                      <span className="mb-2 block text-[9px] font-bold uppercase">Your Email Address</span>
+                      <span className="mb-2 block text-[9px] font-bold uppercase">Your Full Name</span>
                       <input
-                        type="email"
+                        type="text"
                         required
-                        value={authEmailInput}
-                        onChange={(e) => setAuthEmailInput(e.target.value)}
-                        placeholder="you@example.com"
+                        value={authNameInput}
+                        onChange={(e) => setAuthNameInput(e.target.value)}
+                        placeholder="Pritesh Suthar"
                         className="checkout-input font-medium"
                       />
                     </label>
-
-                    <button
-                      type="submit"
-                      disabled={authLoading}
-                      className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase transition hover:bg-purple-dark disabled:opacity-50"
-                    >
-                      {authLoading ? "Sending Code..." : "Send 6-Digit OTP Code"}
-                    </button>
-                  </form>
-
-                  <div className="mt-6 rounded-2xl border border-purple/10 bg-canvas/60 p-4 text-[11px] text-ink/60">
-                    <div className="flex items-center gap-2 font-bold text-purple-dark mb-1">
-                      <span>⚡ Powered by Supabase Auth</span>
-                    </div>
-                    <span>Instant verification · Automatic customer profile registration</span>
-                  </div>
-                </>
-              )}
-
-              {screen === "verify" && (
-                <div className="text-center">
-                  <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-lilac text-purple">
-                    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-7 w-7" fill="none">
-                      <path d="M4 6.5h16v11H4v-11Zm0 .5 8 6 8-6" stroke="currentColor" strokeWidth="1.6" />
-                    </svg>
-                  </span>
-                  <h1 className="mt-6 font-display text-4xl font-semibold">Verify your email.</h1>
-                  <p className="mt-2 text-xs text-ink/60">
-                    Enter the 6-digit verification code sent to <strong className="text-purple">{custEmail}</strong>.
-                  </p>
-
-                  {authInfo && (
-                    <div className="mt-3 rounded-xl bg-mint/50 p-2.5 text-[11px] font-semibold text-purple-dark">
-                      ✓ {authInfo}
-                    </div>
                   )}
 
-                  {authError && (
-                    <div className="mt-3 rounded-xl bg-red-50 p-2.5 text-[11px] font-bold text-red-600">
-                      ⚠ {authError}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleVerifyOtp} className="mt-6 space-y-4">
+                  <label className="block">
+                    <span className="mb-2 block text-[9px] font-bold uppercase">Email Address</span>
                     <input
-                      value={authOtpInput}
-                      onChange={(e) => setAuthOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      type="email"
                       required
-                      inputMode="numeric"
-                      pattern="[0-9]{6}"
-                      maxLength={6}
-                      placeholder="000000"
-                      className="checkout-input text-center text-2xl tracking-[0.6em] font-mono font-bold"
+                      value={authEmailInput}
+                      onChange={(e) => setAuthEmailInput(e.target.value)}
+                      placeholder="you@example.com"
+                      className="checkout-input font-medium"
                     />
-                    <button
-                      type="submit"
-                      disabled={authLoading || authOtpInput.length < 6}
-                      className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase disabled:opacity-40"
-                    >
-                      {authLoading ? "Verifying..." : "Verify & Sign In"}
-                    </button>
-                  </form>
+                  </label>
 
-                  <div className="mt-5 flex justify-center gap-4 text-xs">
-                    <button
-                      type="button"
-                      onClick={handleSendOtp}
-                      disabled={authLoading}
-                      className="font-bold text-purple hover:underline"
-                    >
-                      Resend Code
-                    </button>
-                    <span className="text-ink/20">·</span>
-                    <button
-                      type="button"
-                      onClick={() => setScreen("login")}
-                      className="text-ink/50 hover:underline"
-                    >
-                      Change Email
-                    </button>
-                  </div>
-                </div>
+                  <label className="block">
+                    <span className="mb-2 block text-[9px] font-bold uppercase">Password</span>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={authPasswordInput}
+                      onChange={(e) => setAuthPasswordInput(e.target.value)}
+                      placeholder="••••••••"
+                      className="checkout-input font-medium"
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={authLoading}
+                    className="w-full rounded-full bg-purple py-4 text-xs font-bold tracking-wider text-white uppercase transition hover:bg-purple-dark disabled:opacity-50"
+                  >
+                    {authLoading
+                      ? "Authenticating..."
+                      : authMode === "signup"
+                      ? "Create Account & Sign In"
+                      : "Sign In"}
+                  </button>
+                </form>
               )}
+
+              <div className="mt-6 rounded-2xl border border-purple/10 bg-canvas/60 p-4 text-[11px] text-ink/60">
+                <div className="flex items-center gap-2 font-bold text-purple-dark mb-1">
+                  <span>⚡ Powered by Google Firebase Auth</span>
+                </div>
+                <span>Secure cloud authentication · Passwordless Magic Link & Google Sign-In</span>
+              </div>
             </div>
           </div>
         </div>
@@ -674,7 +807,7 @@ function AccountPortal({
             <button className="w-full rounded-xl px-4 py-3 text-left text-xs font-bold text-white/55 hover:bg-white/10 hover:text-white">Saved addresses</button>
             <button className="w-full rounded-xl px-4 py-3 text-left text-xs font-bold text-white/55 hover:bg-white/10 hover:text-white">Wishlist</button>
           </nav>
-          <button onClick={() => setScreen("login")} className="mt-8 w-full border-t border-white/15 pt-5 text-left text-[9px] font-bold tracking-wider text-coral uppercase">Log out</button>
+          <button onClick={handleSignOut} className="mt-8 w-full border-t border-white/15 pt-5 text-left text-[9px] font-bold tracking-wider text-coral uppercase">Log out</button>
         </aside>
 
         <section className="rounded-3xl bg-white p-6 md:p-9 shadow-sm">
@@ -936,89 +1069,80 @@ export default function App() {
     }
   }, []);
 
-  // Dynamic store data from db / Supabase
+  // Dynamic store data from db / Firebase Firestore
   const [currentProducts, setCurrentProducts] = useState<ProductItem[]>(db.getProducts());
   const [storeSettings, setStoreSettings] = useState(db.getSettings());
-  const [supabaseCategories, setSupabaseCategories] = useState<CategoryMeta[]>([]);
+  const [firestoreCategories, setFirestoreCategories] = useState<CategoryMeta[]>([]);
   const [activeUserId, setActiveUserId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
-    if (isSupabaseConfigured()) {
-      // 1. Fetch live active products from Supabase
-      fetchActiveProductsFromSupabase()
+    if (isFirebaseConfigured() && firestoreDb) {
+      // 1. Fetch live active products from Firestore
+      fetchActiveProductsFromFirestore()
         .then((prods) => {
           if (isMounted && prods.length > 0) setCurrentProducts(prods);
         })
-        .catch((err) => console.error("Error loading products from Supabase:", err));
+        .catch((err) => console.error("Error loading products from Firestore:", err));
 
-      // 2. Fetch live categories from Supabase
-      fetchCategoriesFromSupabase()
+      // 2. Fetch live categories from Firestore
+      fetchCategoriesFromFirestore()
         .then((cats) => {
-          if (isMounted && cats.length > 0) setSupabaseCategories(cats);
+          if (isMounted && cats.length > 0) setFirestoreCategories(cats);
         })
-        .catch((err) => console.error("Error loading categories from Supabase:", err));
+        .catch((err) => console.error("Error loading categories from Firestore:", err));
 
-      // 3. Fetch live site settings from Supabase
-      fetchSiteSettingsFromSupabase()
+      // 3. Fetch live site settings from Firestore
+      fetchSiteSettingsFromFirestore()
         .then((remoteSettings) => {
           if (isMounted && remoteSettings) {
             setStoreSettings((prev) => ({ ...prev, ...remoteSettings }));
           }
         })
-        .catch((err) => console.error("Error loading settings from Supabase:", err));
+        .catch((err) => console.error("Error loading settings from Firestore:", err));
 
-      // 4. Setup Real-time Postgres changes listener
-      const channel = supabase
-        .channel("storefront-realtime-sync")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "products" },
-          () => {
-            fetchActiveProductsFromSupabase().then((prods) => {
-              if (isMounted && prods.length > 0) setCurrentProducts(prods);
-            });
-          }
-        )
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "site_settings" },
-          () => {
-            fetchSiteSettingsFromSupabase().then((settings) => {
-              if (isMounted && settings) {
-                setStoreSettings((prev) => ({ ...prev, ...settings }));
-              }
-            });
-          }
-        )
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "categories" },
-          () => {
-            fetchCategoriesFromSupabase().then((cats) => {
-              if (isMounted && cats.length > 0) setSupabaseCategories(cats);
-            });
-          }
-        )
-        .subscribe();
-
-      // 5. Restore active Supabase session
-      supabase.auth.getSession().then(({ data }) => {
-        if (data.session?.user) {
-          setActiveUserId(data.session.user.id);
-          setCustomerSignedIn(true);
-        }
+      // 4. Setup Real-time Firestore snapshot listeners
+      const unsubProducts = onSnapshot(collection(firestoreDb, "products"), () => {
+        fetchActiveProductsFromFirestore().then((prods) => {
+          if (isMounted && prods.length > 0) setCurrentProducts(prods);
+        });
       });
+
+      const unsubCategories = onSnapshot(collection(firestoreDb, "categories"), () => {
+        fetchCategoriesFromFirestore().then((cats) => {
+          if (isMounted && cats.length > 0) setFirestoreCategories(cats);
+        });
+      });
+
+      const unsubSettings = onSnapshot(doc(firestoreDb, "site_settings", "global_config"), () => {
+        fetchSiteSettingsFromFirestore().then((settings) => {
+          if (isMounted && settings) setStoreSettings((prev) => ({ ...prev, ...settings }));
+        });
+      });
+
+      // 5. Restore active Firebase session
+      let unsubAuth: (() => void) | undefined;
+      if (auth) {
+        unsubAuth = onAuthStateChanged(auth, (user) => {
+          if (user) {
+            setActiveUserId(user.uid);
+            setCustomerSignedIn(true);
+          }
+        });
+      }
 
       return () => {
         isMounted = false;
-        supabase.removeChannel(channel);
+        unsubProducts();
+        unsubCategories();
+        unsubSettings();
+        if (unsubAuth) unsubAuth();
       };
     }
 
     const unsub = db.subscribe(() => {
-      if (!isSupabaseConfigured()) {
+      if (!isFirebaseConfigured()) {
         setCurrentProducts([...db.getProducts()]);
         setStoreSettings({ ...db.getSettings() });
       }
@@ -1030,10 +1154,10 @@ export default function App() {
     };
   }, []);
 
-  // Dynamic Categories: prioritize Supabase, then storeSettings, then defaults
+  // Dynamic Categories: prioritize Firebase Firestore, then storeSettings, then defaults
   const categories: { name: Category; line: string; image: string; tone: string }[] =
-    supabaseCategories.length > 0
-      ? supabaseCategories
+    firestoreCategories.length > 0
+      ? firestoreCategories
           .filter((c) => c.active !== false)
           .map((c) => ({
             name: c.name,
@@ -1241,10 +1365,10 @@ export default function App() {
       };
     });
 
-    // If Supabase is configured, push directly to Supabase with server-side promotion validation
-    if (isSupabaseConfigured()) {
+    // If Firebase is configured, push directly to Firestore with server-side promotion validation
+    if (isFirebaseConfigured()) {
       try {
-        const supRes = await placeOrderToSupabase({
+        const fireRes = await placeOrderToFirestore({
           userId: activeUserId || undefined,
           customerName: safeName,
           customerEmail: safeEmail,
@@ -1274,12 +1398,12 @@ export default function App() {
           couponCode: appliedCoupon || undefined,
         });
 
-        if (!supRes.success) {
-          setCheckoutError(supRes.message || "Failed to process order in database.");
+        if (!fireRes.success) {
+          setCheckoutError(fireRes.message || "Failed to process order in database.");
           return;
         }
       } catch (err: any) {
-        console.error("Supabase order error:", err);
+        console.error("Firestore order error:", err);
       }
     }
 

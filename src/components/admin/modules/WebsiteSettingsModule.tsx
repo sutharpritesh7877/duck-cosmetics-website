@@ -3,11 +3,11 @@ import { StoreSettings } from "../../../types";
 import { db } from "../../../backend/db";
 import { authService } from "../../../backend/authService";
 import { clearAllDemoData } from "../../../backend/demoCleaner";
-import { isSupabaseConfigured, getSupabaseConfigStatus } from "../../../lib/supabaseClient";
+import { isFirebaseConfigured, getFirebaseConfigStatus } from "../../../lib/firebase";
 import {
-  fetchSiteSettingsFromSupabase,
-  saveSiteSettingsToSupabase,
-} from "../../../backend/supabaseService";
+  fetchSiteSettingsFromFirestore,
+  saveSiteSettingsToFirestore,
+} from "../../../backend/firebaseService";
 import {
   uploadImageToCloudinary,
   isCloudinaryConfigured,
@@ -29,8 +29,8 @@ export function WebsiteSettingsModule() {
 
   useEffect(() => {
     let isMounted = true;
-    if (isSupabaseConfigured()) {
-      fetchSiteSettingsFromSupabase().then((remoteSettings) => {
+    if (isFirebaseConfigured()) {
+      fetchSiteSettingsFromFirestore().then((remoteSettings) => {
         if (isMounted && remoteSettings) {
           setFormState((prev) => ({
             ...prev,
@@ -133,26 +133,26 @@ export function WebsiteSettingsModule() {
       serviceablePinCodes: parsedPinCodes,
     };
 
-    if (isSupabaseConfigured()) {
+    if (isFirebaseConfigured()) {
       try {
-        await saveSiteSettingsToSupabase(updated);
-        setFeedback("Store configuration and marketing banners saved to Supabase site_settings table.");
+        await saveSiteSettingsToFirestore(updated);
+        setFeedback("Store configuration and marketing banners saved to Google Firebase Firestore site_settings collection.");
       } catch (err: any) {
-        console.error("Error saving site settings to Supabase:", err);
+        console.error("Error saving site settings to Firestore:", err);
       }
     }
 
     db.saveSettings(updated, currentStaff.name, currentStaff.role);
-    if (!isSupabaseConfigured()) {
+    if (!isFirebaseConfigured()) {
       setFeedback("Store configuration and GST tax rules successfully saved.");
     }
   };
 
-  const dbConfigStatus = getSupabaseConfigStatus();
+  const dbConfigStatus = getFirebaseConfigStatus();
 
   return (
     <div className="space-y-6">
-      {/* Supabase Connection Status Bar */}
+      {/* Firebase Firestore Connection Status Bar */}
       <div
         className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
           dbConfigStatus.configured
@@ -168,8 +168,8 @@ export function WebsiteSettingsModule() {
           />
           <span>
             {dbConfigStatus.configured
-              ? `Site Settings Synced with Supabase PostgreSQL: ${dbConfigStatus.url}`
-              : "Database Notice: Supabase credentials not found in environment."}
+              ? `Site Settings Synced with Google Firebase Firestore (Project: ${dbConfigStatus.projectId})`
+              : "Database Notice: Firebase credentials not found in environment."}
           </span>
         </div>
         {!dbConfigStatus.configured && (
@@ -250,7 +250,7 @@ export function WebsiteSettingsModule() {
               <div className="flex-1 space-y-2 text-left">
                 <span className="block font-bold text-xs text-purple-dark">Brand Logo (Cloudinary CDN)</span>
                 <p className="text-[11px] text-ink/60">
-                  Select a PNG, SVG, or WEBP image. Uploads directly to Cloudinary and saves the CDN URL into Supabase site_settings.
+                  Select a PNG, SVG, or WEBP image. Uploads directly to Cloudinary and saves the CDN URL into Firestore site_settings.
                 </p>
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <label className="cursor-pointer rounded-full bg-purple px-4 py-1.5 text-xs font-bold text-white uppercase hover:bg-purple-dark transition shadow-xs">
@@ -814,7 +814,7 @@ export function WebsiteSettingsModule() {
           </div>
 
           <p className="text-xs text-ink/60 leading-relaxed">
-            Configure your live cloud database credentials below (Supabase, PostgreSQL, Firebase, or MongoDB). 
+            Configure your live cloud database credentials below (Google Firebase / Firestore, PostgreSQL, or MongoDB). 
             When you provide your keys, the system synchronizes product catalog, customer orders, inventory ledgers, and image uploads directly to your cloud instance.
           </p>
 
@@ -822,7 +822,7 @@ export function WebsiteSettingsModule() {
             <label className="block">
               <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Database Provider</span>
               <select
-                value={formState.productionDbConfig?.provider || "supabase"}
+                value={formState.productionDbConfig?.provider || "firebase"}
                 onChange={(e) =>
                   setFormState({
                     ...formState,
@@ -838,9 +838,8 @@ export function WebsiteSettingsModule() {
                 }
                 className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none font-semibold"
               >
-                <option value="supabase">Supabase (PostgreSQL + Storage)</option>
-                <option value="postgresql">Direct PostgreSQL / Supabase URI</option>
-                <option value="firebase">Google Firebase / Firestore</option>
+                <option value="firebase">Google Firebase / Cloud Firestore</option>
+                <option value="postgresql">Direct PostgreSQL URI</option>
                 <option value="mongodb">MongoDB Atlas</option>
                 <option value="custom_rest">Custom REST API / Node.js Backend</option>
               </select>
@@ -855,7 +854,7 @@ export function WebsiteSettingsModule() {
                     ...formState,
                     productionDbConfig: {
                       ...formState.productionDbConfig,
-                      provider: formState.productionDbConfig?.provider || "supabase",
+                      provider: formState.productionDbConfig?.provider || "firebase",
                       apiUrl: formState.productionDbConfig?.apiUrl || "",
                       apiKey: formState.productionDbConfig?.apiKey || "",
                       databaseName: e.target.value,
@@ -877,14 +876,14 @@ export function WebsiteSettingsModule() {
                     ...formState,
                     productionDbConfig: {
                       ...formState.productionDbConfig,
-                      provider: formState.productionDbConfig?.provider || "supabase",
+                      provider: formState.productionDbConfig?.provider || "firebase",
                       apiUrl: e.target.value,
                       apiKey: formState.productionDbConfig?.apiKey || "",
                       connected: true,
                     },
                   })
                 }
-                placeholder="e.g. https://xyzcompany.supabase.co or postgresql://postgres:password@db.xxx:5432/postgres"
+                placeholder="e.g. https://your-project.firebaseio.com or postgresql://..."
                 className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-mono text-[11px]"
               />
             </label>
@@ -899,7 +898,7 @@ export function WebsiteSettingsModule() {
                     ...formState,
                     productionDbConfig: {
                       ...formState.productionDbConfig,
-                      provider: formState.productionDbConfig?.provider || "supabase",
+                      provider: formState.productionDbConfig?.provider || "firebase",
                       apiUrl: formState.productionDbConfig?.apiUrl || "",
                       apiKey: e.target.value,
                       connected: true,
@@ -920,7 +919,7 @@ export function WebsiteSettingsModule() {
                     ...formState,
                     productionDbConfig: {
                       ...formState.productionDbConfig,
-                      provider: formState.productionDbConfig?.provider || "supabase",
+                      provider: formState.productionDbConfig?.provider || "firebase",
                       apiUrl: formState.productionDbConfig?.apiUrl || "",
                       apiKey: formState.productionDbConfig?.apiKey || "",
                       storageBucket: e.target.value,

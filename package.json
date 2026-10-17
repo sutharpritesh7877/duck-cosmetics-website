@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@cloudinary/url-gen": "^1.22.0",
-    "@supabase/supabase-js": "^2.109.0",
+    "firebase": "^13.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

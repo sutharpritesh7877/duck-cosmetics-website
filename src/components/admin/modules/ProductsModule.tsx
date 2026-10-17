@@ -3,13 +3,13 @@ import { ProductItem, CategoryName } from "../../../types";
 import { db } from "../../../backend/db";
 import { authService } from "../../../backend/authService";
 import { DEFAULT_CATEGORIES_META } from "./CategoriesModule";
-import { isSupabaseConfigured, getSupabaseConfigStatus } from "../../../lib/supabaseClient";
+import { isFirebaseConfigured, getFirebaseConfigStatus } from "../../../lib/firebase";
 import {
-  fetchAdminProductsFromSupabase,
-  fetchCategoriesFromSupabase,
-  saveProductToSupabase,
-  deleteProductFromSupabase,
-} from "../../../backend/supabaseService";
+  fetchAdminProductsFromFirestore,
+  fetchCategoriesFromFirestore,
+  saveProductToFirestore,
+  deleteProductFromFirestore,
+} from "../../../backend/firebaseService";
 import {
   uploadImageToCloudinary,
   isCloudinaryConfigured,
@@ -27,7 +27,7 @@ const GALLERY_SLOT_LABELS = [
 export function ProductsModule() {
   const currentStaff = authService.getCurrentUser();
   const [products, setProducts] = useState<ProductItem[]>(db.getProducts());
-  const [isSupabaseLoading, setIsSupabaseLoading] = useState(false);
+  const [isFirebaseLoading, setIsFirebaseLoading] = useState(false);
   const [isUploadingToCloudinary, setIsUploadingToCloudinary] = useState(false);
   const [categories, setCategories] = useState<string[]>(() => {
     const s = db.getSettings();
@@ -56,34 +56,34 @@ export function ProductsModule() {
   useEffect(() => {
     let isMounted = true;
 
-    // Load from Supabase if configured
-    if (isSupabaseConfigured()) {
-      setIsSupabaseLoading(true);
-      fetchAdminProductsFromSupabase()
+    // Load from Firebase Firestore if configured
+    if (isFirebaseConfigured()) {
+      setIsFirebaseLoading(true);
+      fetchAdminProductsFromFirestore()
         .then((data) => {
           if (isMounted) {
-            setProducts(data);
-            setIsSupabaseLoading(false);
+            if (data.length > 0) setProducts(data);
+            setIsFirebaseLoading(false);
           }
         })
         .catch((err) => {
-          console.error("Failed to load products from Supabase:", err);
-          if (isMounted) setIsSupabaseLoading(false);
+          console.error("Failed to load products from Firestore:", err);
+          if (isMounted) setIsFirebaseLoading(false);
         });
 
-      fetchCategoriesFromSupabase()
+      fetchCategoriesFromFirestore()
         .then((cats) => {
           if (isMounted && cats.length > 0) {
             setCategories(cats.map((c) => c.name));
           }
         })
         .catch((err) => {
-          console.error("Failed to load categories from Supabase:", err);
+          console.error("Failed to load categories from Firestore:", err);
         });
     }
 
     const unsub = db.subscribe(() => {
-      if (!isSupabaseConfigured()) {
+      if (!isFirebaseConfigured()) {
         setProducts([...db.getProducts()]);
       }
       const s = db.getSettings();
@@ -263,9 +263,9 @@ export function ProductsModule() {
       updatedAt: new Date().toISOString(),
     };
 
-    if (isSupabaseConfigured()) {
+    if (isFirebaseConfigured()) {
       try {
-        const saved = await saveProductToSupabase(productData);
+        const saved = await saveProductToFirestore(productData);
         setProducts((prev) => {
           const idx = prev.findIndex((p) => p.id === saved.id || p.sku === saved.sku);
           if (idx >= 0) {
@@ -277,9 +277,9 @@ export function ProductsModule() {
         });
         // Mirror to local memory engine for immediate reactivity
         db.saveProduct(saved, currentStaff.name, currentStaff.role);
-        setToastMessage(`Product "${saved.name}" saved to Supabase PostgreSQL database.`);
+        setToastMessage(`Product "${saved.name}" saved to Google Firebase Firestore database.`);
       } catch (err: any) {
-        console.error("Supabase product save error:", err);
+        console.error("Firebase product save error:", err);
         // Save to local engine so admin changes are NOT lost!
         db.saveProduct(productData, currentStaff.name, currentStaff.role);
         setProducts((prev) => {
@@ -291,19 +291,7 @@ export function ProductsModule() {
           }
           return [productData, ...prev];
         });
-
-        if (err.message && err.message.toLowerCase().includes("row-level security")) {
-          alert(
-            `Supabase RLS Policy Alert: Your Supabase PostgreSQL database has Row-Level Security blocking writes.\n\n` +
-            `To permanently fix this in 5 seconds:\n` +
-            `1. Open your Supabase Dashboard -> SQL Editor\n` +
-            `2. Run this command:\n` +
-            `   ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;\n\n` +
-            `Your product "${productData.name}" has been safely saved in the store catalog.`
-          );
-        } else {
-          alert(`Supabase save error: ${err.message}. Product preserved in store memory.`);
-        }
+        alert(`Firebase save error: ${err.message}. Product preserved in store memory.`);
       }
     } else {
       db.saveProduct(productData, currentStaff.name, currentStaff.role);
@@ -317,14 +305,14 @@ export function ProductsModule() {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to remove "${name}" from the active catalog?`)) return;
 
-    if (isSupabaseConfigured()) {
+    if (isFirebaseConfigured()) {
       try {
-        await deleteProductFromSupabase(id);
+        await deleteProductFromFirestore(id);
         setProducts((prev) => prev.filter((p) => p.id !== id));
         db.deleteProduct(id, currentStaff.name, currentStaff.role);
-        setToastMessage(`Product "${name}" removed from Supabase database.`);
+        setToastMessage(`Product "${name}" removed from Firestore database.`);
       } catch (err: any) {
-        alert(`Supabase delete error: ${err.message}`);
+        alert(`Firestore delete error: ${err.message}`);
         return;
       }
     } else {
@@ -333,15 +321,15 @@ export function ProductsModule() {
     }
   };
 
-  const dbConfigStatus = getSupabaseConfigStatus();
+  const fbConfigStatus = getFirebaseConfigStatus();
   const cloudinaryStatus = getCloudinaryConfig();
 
   return (
     <div className="space-y-6">
-      {/* Supabase Connection Status Bar */}
+      {/* Firebase Firestore Connection Status Bar */}
       <div
         className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
-          dbConfigStatus.configured
+          fbConfigStatus.configured
             ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
             : "border-amber-200 bg-amber-50/80 text-amber-900"
         }`}
@@ -349,21 +337,21 @@ export function ProductsModule() {
         <div className="flex items-center gap-2.5">
           <span
             className={`h-2.5 w-2.5 rounded-full ${
-              dbConfigStatus.configured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+              fbConfigStatus.configured ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
             }`}
           />
           <div>
             <span>
-              {dbConfigStatus.configured
-                ? `PostgreSQL Connected: ${dbConfigStatus.url}`
-                : "Database Notice: Supabase credentials not found in environment."}
+              {fbConfigStatus.configured
+                ? `Google Firebase Firestore Connected (Project: ${fbConfigStatus.projectId})`
+                : "Database Notice: Firebase credentials not found in environment."}
             </span>
-            {isSupabaseLoading && <span className="ml-2 text-ink/40 font-normal">(Syncing latest products...)</span>}
+            {isFirebaseLoading && <span className="ml-2 text-ink/40 font-normal">(Syncing Firestore products...)</span>}
           </div>
         </div>
-        {!dbConfigStatus.configured && (
+        {!fbConfigStatus.configured && (
           <span className="text-[10px] text-amber-700 bg-amber-100/70 px-2.5 py-1 rounded-full">
-            Missing: {dbConfigStatus.missingFields.join(", ")}
+            Missing: {fbConfigStatus.missingFields.join(", ")}
           </span>
         )}
       </div>

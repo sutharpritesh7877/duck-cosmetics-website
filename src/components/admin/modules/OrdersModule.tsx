@@ -5,26 +5,26 @@ import { authService } from "../../../backend/authService";
 import { orderService } from "../../../backend/orderService";
 import { analyticsService } from "../../../backend/analyticsService";
 import { OrderDetailModal } from "../OrderDetailModal";
-import { isSupabaseConfigured, getSupabaseConfigStatus } from "../../../lib/supabaseClient";
-import { fetchAllOrdersFromSupabase } from "../../../backend/supabaseService";
+import { isFirebaseConfigured, getFirebaseConfigStatus } from "../../../lib/firebase";
+import { fetchAllOrdersFromFirestore } from "../../../backend/firebaseService";
 
 export function OrdersModule() {
   const currentStaff = authService.getCurrentUser();
   const [ordersList, setOrdersList] = useState<Order[]>(db.getOrders());
-  const [supabaseConnected] = useState(isSupabaseConfigured());
+  const [firebaseConnected] = useState(isFirebaseConfigured());
   const staffList = db.getStaff();
 
   useEffect(() => {
-    if (isSupabaseConfigured()) {
-      fetchAllOrdersFromSupabase().then((supOrders) => {
-        if (supOrders && supOrders.length > 0) {
-          setOrdersList(supOrders);
+    if (isFirebaseConfigured()) {
+      fetchAllOrdersFromFirestore().then((remoteOrders) => {
+        if (remoteOrders && remoteOrders.length > 0) {
+          setOrdersList(remoteOrders);
         }
       });
     }
 
     const unsub = db.subscribe(() => {
-      if (!isSupabaseConfigured()) {
+      if (!isFirebaseConfigured()) {
         setOrdersList(db.getOrders());
       }
     });
@@ -166,11 +166,11 @@ export function OrdersModule() {
     { label: "Refund Pending", count: stats.refundPending, filterKey: "Refund Pending", color: "bg-orange-100 text-orange-800" },
   ];
 
-  const dbConfigStatus = getSupabaseConfigStatus();
+  const dbConfigStatus = getFirebaseConfigStatus();
 
   return (
     <div className="space-y-6">
-      {/* Supabase Connection Status Bar */}
+      {/* Firebase Firestore Connection Status Bar */}
       <div
         className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
           dbConfigStatus.configured
@@ -187,8 +187,8 @@ export function OrdersModule() {
           <div>
             <span>
               {dbConfigStatus.configured
-                ? `Supabase Orders Sync Active: Connected to ${dbConfigStatus.url}`
-                : "Database Notice: Supabase credentials not found in environment."}
+                ? `Firestore Orders Sync Active: Connected to Google Firebase (Project: ${dbConfigStatus.projectId})`
+                : "Database Notice: Firebase credentials not found in environment."}
             </span>
           </div>
         </div>

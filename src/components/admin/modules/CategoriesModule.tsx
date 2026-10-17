@@ -2,12 +2,12 @@ import { useState, useEffect } from "react";
 import { CategoryMeta } from "../../../types";
 import { db } from "../../../backend/db";
 import { authService } from "../../../backend/authService";
-import { isSupabaseConfigured, getSupabaseConfigStatus } from "../../../lib/supabaseClient";
+import { isFirebaseConfigured, getFirebaseConfigStatus } from "../../../lib/firebase";
 import {
-  fetchCategoriesFromSupabase,
-  saveCategoryToSupabase,
-  deleteCategoryFromSupabase,
-} from "../../../backend/supabaseService";
+  fetchCategoriesFromFirestore,
+  saveCategoryToFirestore,
+  deleteCategoryFromFirestore,
+} from "../../../backend/firebaseService";
 import {
   uploadImageToCloudinary,
   isCloudinaryConfigured,
@@ -73,19 +73,19 @@ export function CategoriesModule() {
 
   useEffect(() => {
     let isMounted = true;
-    if (isSupabaseConfigured()) {
-      fetchCategoriesFromSupabase()
+    if (isFirebaseConfigured()) {
+      fetchCategoriesFromFirestore()
         .then((cats) => {
           if (isMounted && cats.length > 0) {
             setCategories(cats);
           }
         })
-        .catch((err) => console.error("Error loading categories from Supabase:", err));
+        .catch((err) => console.error("Error loading categories from Firestore:", err));
     }
 
     const unsub = db.subscribe(() => {
       setProducts([...db.getProducts()]);
-      if (!isSupabaseConfigured()) {
+      if (!isFirebaseConfigured()) {
         const s = db.getSettings();
         if (s.customCategories && s.customCategories.length > 0) {
           setCategories([...s.customCategories]);
@@ -100,22 +100,14 @@ export function CategoriesModule() {
   }, []);
 
   const persistCategories = async (updatedCategories: CategoryMeta[], actionLog: string) => {
-    // If Supabase is configured, sync to Supabase PostgreSQL categories table
-    if (isSupabaseConfigured()) {
+    // If Firebase is configured, sync to Firestore categories collection
+    if (isFirebaseConfigured()) {
       try {
         for (const cat of updatedCategories) {
-          await saveCategoryToSupabase(cat);
+          await saveCategoryToFirestore(cat);
         }
       } catch (err: any) {
-        console.error("Supabase category save error:", err);
-        if (err.message && err.message.toLowerCase().includes("row-level security")) {
-          alert(
-            `Supabase RLS Policy Alert: Categories table has Row-Level Security active.\n\n` +
-            `Run this command in Supabase SQL editor to allow writes:\n` +
-            `ALTER TABLE public.categories DISABLE ROW LEVEL SECURITY;\n\n` +
-            `Your categories are preserved in store settings.`
-          );
-        }
+        console.error("Firestore category save error:", err);
       }
     }
 
@@ -271,11 +263,11 @@ export function CategoriesModule() {
       if (!confirm(`Are you sure you want to delete category "${categoryName}"?`)) return;
     }
 
-    if (isSupabaseConfigured()) {
+    if (isFirebaseConfigured()) {
       try {
-        await deleteCategoryFromSupabase(categoryName);
+        await deleteCategoryFromFirestore(categoryName);
       } catch (err: any) {
-        console.error("Error deleting category from Supabase:", err);
+        console.error("Error deleting category from Firestore:", err);
       }
     }
 
@@ -285,11 +277,11 @@ export function CategoriesModule() {
   };
 
   const sortedCategories = [...categories].sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
-  const dbConfigStatus = getSupabaseConfigStatus();
+  const dbConfigStatus = getFirebaseConfigStatus();
 
   return (
     <div className="space-y-6">
-      {/* Supabase Connection Status Bar */}
+      {/* Firebase Firestore Connection Status Bar */}
       <div
         className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
           dbConfigStatus.configured
@@ -305,8 +297,8 @@ export function CategoriesModule() {
           />
           <span>
             {dbConfigStatus.configured
-              ? `Categories Synced with Supabase PostgreSQL: ${dbConfigStatus.url}`
-              : "Database Notice: Supabase credentials not found in environment."}
+              ? `Categories Synced with Google Firebase Firestore (Project: ${dbConfigStatus.projectId})`
+              : "Database Notice: Firebase credentials not found in environment."}
           </span>
         </div>
         {!dbConfigStatus.configured && (
