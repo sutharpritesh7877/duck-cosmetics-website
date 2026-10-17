@@ -23,6 +23,7 @@ export function WebsiteSettingsModule() {
   const [feedback, setFeedback] = useState("");
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [isUploadingHero, setIsUploadingHero] = useState(false);
+  const [isUploadingPromise, setIsUploadingPromise] = useState(false);
 
   const canManage = authService.can("settings:manage", currentStaff);
   const cloudinaryStatus = getCloudinaryConfig();
@@ -113,6 +114,42 @@ export function WebsiteSettingsModule() {
       reader.onload = () => {
         setFormState((prev) => ({ ...prev, heroImageUrl: reader.result as string }));
         setFeedback("Hero graphic updated locally. Add Cloudinary credentials in .env to store on CDN.");
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = "";
+  };
+
+  const handlePromiseImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please select a valid image file (PNG, JPG, WEBP).");
+      return;
+    }
+
+    if (isCloudinaryConfigured()) {
+      setIsUploadingPromise(true);
+      try {
+        const res = await uploadImageToCloudinary(file, "duck_brand");
+        setFormState((prev) => ({ ...prev, promiseImageUrl: res.url }));
+        setFeedback("✓ Brand Promise graphic uploaded to Cloudinary CDN.");
+      } catch (err: any) {
+        console.error("Cloudinary promise upload error:", err);
+        alert(`Cloudinary upload warning: ${err.message}. Using local file preview.`);
+        const reader = new FileReader();
+        reader.onload = () => {
+          setFormState((prev) => ({ ...prev, promiseImageUrl: reader.result as string }));
+        };
+        reader.readAsDataURL(file);
+      } finally {
+        setIsUploadingPromise(false);
+      }
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setFormState((prev) => ({ ...prev, promiseImageUrl: reader.result as string }));
+        setFeedback("Brand Promise graphic updated locally. Add Cloudinary credentials in .env to store on CDN.");
       };
       reader.readAsDataURL(file);
     }
@@ -605,6 +642,228 @@ export function WebsiteSettingsModule() {
                 </label>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Brand Promise Section Editor ("Made gently. Made responsibly.") */}
+        <section className="rounded-3xl border border-purple/15 bg-white p-6 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-purple/10 pb-4">
+            <div>
+              <span className="text-[10px] font-bold tracking-[0.16em] text-purple uppercase">Storefront Section Editor</span>
+              <h3 className="font-display text-xl font-bold text-purple-dark">
+                Brand Promise & Core Values Banner ("Made gently. Made responsibly.")
+              </h3>
+              <p className="mt-1 text-xs text-ink/50">
+                Customize the high-impact split banner shown on the main homepage. Upload custom brand photography, edit the headline, description, and the 4 trust badges.
+              </p>
+            </div>
+            <span className="rounded-full bg-lilac/70 px-3 py-1 text-[10px] font-bold text-purple tracking-wider uppercase w-fit">
+              Homepage / #promise
+            </span>
+          </div>
+
+          {/* Interactive Live Split-Screen Preview */}
+          <div className="rounded-2xl border border-purple/20 overflow-hidden shadow-xs">
+            <div className="bg-canvas/80 px-4 py-2 border-b border-purple/10 flex items-center justify-between text-[11px] font-bold text-purple-dark">
+              <span>🖥️ Live Storefront Split-Screen Preview</span>
+              <span className="text-[10px] text-ink/40 font-normal">Updates in real time as you edit below</span>
+            </div>
+            <div className="grid md:grid-cols-2 min-h-[220px]">
+              {/* Left Image Preview */}
+              <div className="relative min-h-[200px] bg-canvas overflow-hidden">
+                <img
+                  src={formState.promiseImageUrl || "https://images.unsplash.com/photo-1642764733829-59e40ee5af5b?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=85&w=1200"}
+                  alt="Promise Section Preview"
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              </div>
+              {/* Right Content Preview */}
+              <div className={`p-6 sm:p-8 text-white flex flex-col justify-center ${formState.promiseBgColor || "bg-purple"} transition-colors`}>
+                <p className="text-[10px] font-bold tracking-[0.18em] text-lilac uppercase">
+                  {formState.promiseEyebrow || "Care you can count on"}
+                </p>
+                <h4 className="mt-2 font-display text-2xl sm:text-3xl font-semibold leading-tight">
+                  {formState.promiseHeadline1 || "Made gently."}
+                  {formState.promiseHeadline2 && (
+                    <>
+                      <br />
+                      {formState.promiseHeadline2}
+                    </>
+                  )}
+                </h4>
+                <p className="mt-3 text-xs leading-relaxed text-white/75 line-clamp-3">
+                  {formState.promiseDescription || "From a baby’s first bath to your nightly skin ritual, we make dependable care with carefully selected ingredients and no unnecessary fuss."}
+                </p>
+                <div className="mt-5 grid grid-cols-2 gap-3 border-t border-white/20 pt-4 text-[10px] font-bold tracking-wider uppercase text-white/90">
+                  <p>✓ {formState.promiseFeature1 || "Clear labelling"}</p>
+                  <p>✓ {formState.promiseFeature2 || "Thoughtful formulas"}</p>
+                  <p>✓ {formState.promiseFeature3 || "Family focused"}</p>
+                  <p>✓ {formState.promiseFeature4 || "Batch traceability"}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Controls: Left Image */}
+          <div className="space-y-4">
+            <span className="block font-bold text-xs text-purple-dark">
+              1. Left-Side Visual Media (Cloudinary CDN or Custom Image URL)
+            </span>
+            <div className="flex flex-col sm:flex-row items-center gap-5 rounded-2xl border border-purple/15 bg-canvas/40 p-4">
+              <div className="h-24 w-32 shrink-0 rounded-2xl border border-purple/20 bg-white overflow-hidden shadow-xs">
+                <img
+                  src={formState.promiseImageUrl || "https://images.unsplash.com/photo-1642764733829-59e40ee5af5b?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=85&w=1200"}
+                  alt="Promise Preview Thumbnail"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <div className="flex-1 space-y-2 text-left">
+                <span className="block font-bold text-xs text-purple-dark">Brand Photography Graphic</span>
+                <p className="text-[11px] text-ink/60">
+                  Upload high-resolution photography of Duck care bottles, ingredients, or brand aesthetic. Uploads directly to Cloudinary CDN and updates the live site instantly.
+                </p>
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <label className="cursor-pointer rounded-full bg-purple px-4 py-1.5 text-xs font-bold text-white uppercase hover:bg-purple-dark transition shadow-xs">
+                    {isUploadingPromise ? "⏳ Uploading to CDN..." : "Upload Photo to Cloudinary"}
+                    <input
+                      type="file"
+                      disabled={isUploadingPromise}
+                      accept="image/png, image/jpeg, image/jpg, image/webp"
+                      onChange={handlePromiseImageUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {formState.promiseImageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setFormState({ ...formState, promiseImageUrl: undefined })}
+                      className="rounded-full border border-red-200 px-3 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+                    >
+                      Reset to Default Image
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <label className="block text-xs">
+              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Or Enter Direct Image URL</span>
+              <input
+                value={formState.promiseImageUrl || ""}
+                onChange={(e) => setFormState({ ...formState, promiseImageUrl: e.target.value })}
+                placeholder="https://images.unsplash.com/... or https://res.cloudinary.com/..."
+                className="w-full rounded-xl border border-purple/15 p-2 outline-none font-mono text-xs bg-white"
+              />
+            </label>
+          </div>
+
+          {/* Controls: Right Copy & Features */}
+          <div className="space-y-4 pt-2">
+            <span className="block font-bold text-xs text-purple-dark">
+              2. Right-Side Text Content & Core Brand Values
+            </span>
+
+            <div className="grid gap-4 sm:grid-cols-2 text-xs">
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Top Eyebrow Tagline</span>
+                <input
+                  value={formState.promiseEyebrow || "Care you can count on"}
+                  onChange={(e) => setFormState({ ...formState, promiseEyebrow: e.target.value })}
+                  placeholder="e.g. Care you can count on"
+                  className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-semibold text-purple-dark"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Main Headline - Line 1</span>
+                <input
+                  value={formState.promiseHeadline1 || "Made gently."}
+                  onChange={(e) => setFormState({ ...formState, promiseHeadline1: e.target.value })}
+                  placeholder="e.g. Made gently."
+                  className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-bold text-purple-dark"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Main Headline - Line 2</span>
+                <input
+                  value={formState.promiseHeadline2 || "Made responsibly."}
+                  onChange={(e) => setFormState({ ...formState, promiseHeadline2: e.target.value })}
+                  placeholder="e.g. Made responsibly."
+                  className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-bold text-purple-dark"
+                />
+              </label>
+
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Paragraph Body Description</span>
+                <textarea
+                  rows={3}
+                  value={formState.promiseDescription || "From a baby’s first bath to your nightly skin ritual, we make dependable care with carefully selected ingredients and no unnecessary fuss."}
+                  onChange={(e) => setFormState({ ...formState, promiseDescription: e.target.value })}
+                  placeholder="Write a clear, trustworthy explanation of your brand standards..."
+                  className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs leading-relaxed"
+                />
+              </label>
+            </div>
+
+            <span className="block font-bold text-[11px] text-purple uppercase tracking-wider pt-2">
+              The 4 Trust Pillars / Feature Highlights
+            </span>
+            <div className="grid gap-3 sm:grid-cols-2 text-xs">
+              <label className="block">
+                <span className="mb-1 block font-bold text-ink/60 text-[9px] uppercase">Pillar 1 (Top Left)</span>
+                <input
+                  value={formState.promiseFeature1 || "Clear labelling"}
+                  onChange={(e) => setFormState({ ...formState, promiseFeature1: e.target.value })}
+                  placeholder="e.g. Clear labelling"
+                  className="w-full rounded-xl border border-purple/15 p-2 outline-none font-semibold"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block font-bold text-ink/60 text-[9px] uppercase">Pillar 2 (Top Right)</span>
+                <input
+                  value={formState.promiseFeature2 || "Thoughtful formulas"}
+                  onChange={(e) => setFormState({ ...formState, promiseFeature2: e.target.value })}
+                  placeholder="e.g. Thoughtful formulas"
+                  className="w-full rounded-xl border border-purple/15 p-2 outline-none font-semibold"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block font-bold text-ink/60 text-[9px] uppercase">Pillar 3 (Bottom Left)</span>
+                <input
+                  value={formState.promiseFeature3 || "Family focused"}
+                  onChange={(e) => setFormState({ ...formState, promiseFeature3: e.target.value })}
+                  placeholder="e.g. Family focused"
+                  className="w-full rounded-xl border border-purple/15 p-2 outline-none font-semibold"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block font-bold text-ink/60 text-[9px] uppercase">Pillar 4 (Bottom Right)</span>
+                <input
+                  value={formState.promiseFeature4 || "Batch traceability"}
+                  onChange={(e) => setFormState({ ...formState, promiseFeature4: e.target.value })}
+                  placeholder="e.g. Batch traceability"
+                  className="w-full rounded-xl border border-purple/15 p-2 outline-none font-semibold"
+                />
+              </label>
+            </div>
+
+            <label className="block text-xs pt-1">
+              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Right Banner Background Tone</span>
+              <select
+                value={formState.promiseBgColor || "bg-purple"}
+                onChange={(e) => setFormState({ ...formState, promiseBgColor: e.target.value })}
+                className="w-full rounded-xl border border-purple/15 bg-white p-2.5 outline-none font-semibold"
+              >
+                <option value="bg-purple">Duck Signature Purple (Standard)</option>
+                <option value="bg-purple-dark">Deep Royal Plum</option>
+                <option value="bg-sage">Herbal Sage Green</option>
+                <option value="bg-ink">Midnight Charcoal</option>
+              </select>
+            </label>
           </div>
         </section>
 

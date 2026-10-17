@@ -68,6 +68,16 @@ export const initialSettings: StoreSettings = {
   heroHeadline: "Gentle daily care for your whole family.",
   heroSubtitle: "Thoughtfully crafted baby care, everyday cosmetics, soothing vapor balms, and herbal ortho oils. Made with plant-rich formulas and verified safety for Indian homes.",
   promoBannerText: "Buy any cosmetic and unlock a free face wash (₹349 value)",
+  promiseImageUrl: "https://images.unsplash.com/photo-1642764733829-59e40ee5af5b?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=85&w=1200",
+  promiseEyebrow: "Care you can count on",
+  promiseHeadline1: "Made gently.",
+  promiseHeadline2: "Made responsibly.",
+  promiseDescription: "From a baby’s first bath to your nightly skin ritual, we make dependable care with carefully selected ingredients and no unnecessary fuss.",
+  promiseFeature1: "Clear labelling",
+  promiseFeature2: "Thoughtful formulas",
+  promiseFeature3: "Family focused",
+  promiseFeature4: "Batch traceability",
+  promiseBgColor: "bg-purple",
 };
 
 export const initialStaff: StaffUser[] = [

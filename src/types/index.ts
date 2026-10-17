@@ -415,4 +415,15 @@ export interface StoreSettings {
     active: boolean;
   };
   customCategories?: CategoryMeta[];
+  // Brand Promise & Values Section Customization ("Made gently. Made responsibly.")
+  promiseImageUrl?: string;
+  promiseEyebrow?: string;
+  promiseHeadline1?: string;
+  promiseHeadline2?: string;
+  promiseDescription?: string;
+  promiseFeature1?: string;
+  promiseFeature2?: string;
+  promiseFeature3?: string;
+  promiseFeature4?: string;
+  promiseBgColor?: string;
 }

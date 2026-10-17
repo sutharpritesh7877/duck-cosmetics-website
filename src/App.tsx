@@ -1115,7 +1115,7 @@ export default function App() {
         });
       });
 
-      const unsubSettings = onSnapshot(doc(firestoreDb, "site_settings", "global_config"), () => {
+      const unsubSettings = onSnapshot(doc(firestoreDb, "site_settings", "default"), () => {
         fetchSiteSettingsFromFirestore().then((settings) => {
           if (isMounted && settings) setStoreSettings((prev) => ({ ...prev, ...settings }));
         });
@@ -2337,17 +2337,39 @@ export default function App() {
         </div>
       )}
 
-      {/* Promise Section */}
+      {/* Promise Section - 100% Admin Editable from Website Settings */}
       <section id="promise" className="grid lg:grid-cols-2">
-        <div className="relative min-h-[34rem] overflow-hidden">
-          <img src="https://images.unsplash.com/photo-1642764733829-59e40ee5af5b?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=85&w=1200" alt="Thoughtfully arranged clean care products" className="absolute inset-0 h-full w-full object-cover" />
+        <div className="relative min-h-[34rem] overflow-hidden bg-canvas">
+          <img
+            src={storeSettings.promiseImageUrl || "https://images.unsplash.com/photo-1642764733829-59e40ee5af5b?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=85&w=1200"}
+            alt={storeSettings.promiseHeadline1 ? `${storeSettings.promiseHeadline1} ${storeSettings.promiseHeadline2 || ""}` : "Thoughtfully arranged clean care products"}
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1642764733829-59e40ee5af5b?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=85&w=1200";
+            }}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
         </div>
-        <div className="flex flex-col justify-center bg-purple px-7 py-20 text-white md:px-16 lg:px-20">
-          <p className="text-xs font-bold tracking-[0.18em] text-lilac uppercase">Care you can count on</p>
-          <h2 className="mt-5 max-w-2xl font-display text-5xl leading-[0.98] font-semibold tracking-tight md:text-7xl">Made gently.<br />Made responsibly.</h2>
-          <p className="mt-7 max-w-xl text-base leading-relaxed text-white/70">From a baby’s first bath to your nightly skin ritual, we make dependable care with carefully selected ingredients and no unnecessary fuss.</p>
+        <div className={`flex flex-col justify-center ${storeSettings.promiseBgColor || "bg-purple"} px-7 py-20 text-white md:px-16 lg:px-20 transition-colors`}>
+          <p className="text-xs font-bold tracking-[0.18em] text-lilac uppercase">
+            {storeSettings.promiseEyebrow || "Care you can count on"}
+          </p>
+          <h2 className="mt-5 max-w-2xl font-display text-5xl leading-[0.98] font-semibold tracking-tight md:text-7xl">
+            {storeSettings.promiseHeadline1 || "Made gently."}
+            {storeSettings.promiseHeadline2 && (
+              <>
+                <br />
+                {storeSettings.promiseHeadline2}
+              </>
+            )}
+          </h2>
+          <p className="mt-7 max-w-xl text-base leading-relaxed text-white/70">
+            {storeSettings.promiseDescription || "From a baby’s first bath to your nightly skin ritual, we make dependable care with carefully selected ingredients and no unnecessary fuss."}
+          </p>
           <div className="mt-10 grid grid-cols-2 gap-6 border-t border-white/20 pt-7 text-xs font-bold tracking-wider uppercase">
-            <p>Clear labelling</p><p>Thoughtful formulas</p><p>Family focused</p><p>Batch traceability</p>
+            <p>{storeSettings.promiseFeature1 || "Clear labelling"}</p>
+            <p>{storeSettings.promiseFeature2 || "Thoughtful formulas"}</p>
+            <p>{storeSettings.promiseFeature3 || "Family focused"}</p>
+            <p>{storeSettings.promiseFeature4 || "Batch traceability"}</p>
           </div>
         </div>
       </section>
