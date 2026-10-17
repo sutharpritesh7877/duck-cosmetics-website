@@ -29,6 +29,37 @@ import {
 import { auth, firestoreDb, isFirebaseConfigured, googleProvider } from "../lib/firebase";
 import { ProductItem, CategoryMeta, StoreSettings, Order, OrderItem, Address, PaymentMethod } from "../types";
 
+/**
+ * Recursively cleans an object for Firestore by removing all keys with `undefined` values.
+ * Firestore strictly forbids `undefined` in documents and will throw:
+ * "Unsupported field value: undefined" if any field contains undefined.
+ */
+export function cleanForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as unknown as T;
+  }
+
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => cleanForFirestore(item)) as unknown as T;
+  }
+
+  if (typeof data === "object") {
+    if (data instanceof Date) return data;
+
+    const cleaned: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        cleaned[key] = cleanForFirestore(value);
+      }
+    }
+    return cleaned as T;
+  }
+
+  return data;
+}
+
 // ==============================================================================
 // 1. PRODUCTS (FIRESTORE)
 // ==============================================================================
@@ -77,11 +108,12 @@ export async function saveProductToFirestore(product: ProductItem): Promise<Prod
   const productId = product.id || `prd-${Date.now()}`;
   const docRef = doc(firestoreDb, "products", productId);
 
-  const payload = {
+  // Clean all undefined fields (e.g. badge, images, mrp) before writing to Firestore
+  const payload = cleanForFirestore({
     ...product,
     id: productId,
     updatedAt: new Date().toISOString(),
-  };
+  });
 
   await setDoc(docRef, payload, { merge: true });
   return payload;
@@ -126,8 +158,9 @@ export async function saveCategoryToFirestore(category: CategoryMeta): Promise<C
 
   const catId = category.name.toLowerCase().replace(/[^a-z0-9]/g, "-");
   const docRef = doc(firestoreDb, "categories", catId);
-  await setDoc(docRef, category, { merge: true });
-  return category;
+  const payload = cleanForFirestore(category);
+  await setDoc(docRef, payload, { merge: true });
+  return payload;
 }
 
 export async function deleteCategoryFromFirestore(categoryName: string): Promise<boolean> {
@@ -164,7 +197,8 @@ export async function saveSiteSettingsToFirestore(settings: StoreSettings): Prom
   }
 
   const docRef = doc(firestoreDb, "site_settings", "default");
-  await setDoc(docRef, { ...settings, updatedAt: new Date().toISOString() }, { merge: true });
+  const payload = cleanForFirestore({ ...settings, updatedAt: new Date().toISOString() });
+  await setDoc(docRef, payload, { merge: true });
 }
 
 // ==============================================================================
@@ -294,7 +328,8 @@ export async function placeOrderToFirestore(input: PlaceOrderInput): Promise<{
     ],
   };
 
-  await setDoc(doc(firestoreDb, "orders", orderId), orderData);
+  const payload = cleanForFirestore(orderData);
+  await setDoc(doc(firestoreDb, "orders", orderId), payload, { merge: true });
 
   return {
     success: true,
@@ -303,18 +338,53 @@ export async function placeOrderToFirestore(input: PlaceOrderInput): Promise<{
   };
 }
 
-export async function fetchCustomerOrdersFromFirestore(userId: string): Promise<Order[]> {
-  if (!isFirebaseConfigured() || !firestoreDb || !userId) return [];
+export async function saveOrderToFirestore(order: Order): Promise<Order> {
+  if (!isFirebaseConfigured() || !firestoreDb) {
+    throw new Error("Firebase is not configured.");
+  }
+  const payload = cleanForFirestore(order);
+  await setDoc(doc(firestoreDb, "orders", order.id), payload, { merge: true });
+  return payload;
+}
+
+export async function fetchCustomerOrdersFromFirestore(userId: string, email?: string): Promise<Order[]> {
+  if (!isFirebaseConfigured() || !firestoreDb) return [];
 
   try {
-    const q = query(
-      collection(firestoreDb, "orders"),
-      where("customerId", "==", userId)
-    );
-    const snap = await getDocs(q);
-    const orders: Order[] = [];
-    snap.forEach((d) => orders.push(d.data() as Order));
-    return orders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const list: Order[] = [];
+    const seen = new Set<string>();
+
+    if (userId) {
+      const q = query(
+        collection(firestoreDb, "orders"),
+        where("customerId", "==", userId)
+      );
+      const snap = await getDocs(q);
+      snap.forEach((d) => {
+        const order = d.data() as Order;
+        if (!seen.has(order.id)) {
+          seen.add(order.id);
+          list.push(order);
+        }
+      });
+    }
+
+    if (email && email.trim()) {
+      const qEmail = query(
+        collection(firestoreDb, "orders"),
+        where("customerEmail", "==", email.trim().toLowerCase())
+      );
+      const snapEmail = await getDocs(qEmail);
+      snapEmail.forEach((d) => {
+        const order = d.data() as Order;
+        if (!seen.has(order.id)) {
+          seen.add(order.id);
+          list.push(order);
+        }
+      });
+    }
+
+    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   } catch (err: any) {
     console.error("[Firestore] Error fetching customer orders:", err.message);
     return [];
@@ -352,13 +422,13 @@ export async function signUpWithEmailPassword(email: string, pass: string, name?
   // Create profile in Firestore
   if (cred.user && firestoreDb) {
     const role = email.toLowerCase() === "sutharpritesh7877@gmail.com" ? "admin" : "customer";
-    await setDoc(doc(firestoreDb, "profiles", cred.user.uid), {
+    await setDoc(doc(firestoreDb, "profiles", cred.user.uid), cleanForFirestore({
       id: cred.user.uid,
       email: cred.user.email,
       fullName: name || "",
       role,
       createdAt: new Date().toISOString(),
-    }, { merge: true });
+    }), { merge: true });
   }
 
   return { success: true, user: cred.user };
@@ -381,14 +451,14 @@ export async function loginWithGoogle() {
   const cred = await signInWithPopup(auth, googleProvider);
   if (cred.user && firestoreDb) {
     const role = cred.user.email?.toLowerCase() === "sutharpritesh7877@gmail.com" ? "admin" : "customer";
-    await setDoc(doc(firestoreDb, "profiles", cred.user.uid), {
+    await setDoc(doc(firestoreDb, "profiles", cred.user.uid), cleanForFirestore({
       id: cred.user.uid,
       email: cred.user.email,
       fullName: cred.user.displayName || "",
       avatarUrl: cred.user.photoURL || "",
       role,
       updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    }), { merge: true });
   }
 
   return { success: true, user: cred.user };
@@ -435,10 +505,11 @@ export async function fetchUserProfileFromFirestore(userId: string) {
 export async function saveUserProfileToFirestore(userId: string, data: any) {
   if (!isFirebaseConfigured() || !firestoreDb || !userId) return;
 
-  await setDoc(doc(firestoreDb, "profiles", userId), {
+  const payload = cleanForFirestore({
     ...data,
     updatedAt: new Date().toISOString(),
-  }, { merge: true });
+  });
+  await setDoc(doc(firestoreDb, "profiles", userId), payload, { merge: true });
 }
 
 export async function signOutFirebase() {

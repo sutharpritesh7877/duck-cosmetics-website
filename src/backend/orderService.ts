@@ -96,11 +96,10 @@ export const orderService = {
 
     // 2. Concurrency and stock check
     for (const item of params.items) {
-      const p = products.find((prod) => prod.id === item.productId);
-      if (!p) {
-        return { success: false, error: `Product ${item.name} not found.` };
-      }
-      if (p.stock < item.quantity) {
+      const p = products.find(
+        (prod) => prod.id === item.productId || prod.name.toLowerCase() === item.name.toLowerCase()
+      );
+      if (p && p.stock < item.quantity) {
         return {
           success: false,
           error: `Insufficient stock for ${item.name}. Available: ${p.stock}, Requested: ${item.quantity}`,
@@ -152,14 +151,19 @@ export const orderService = {
 
     // Deduct stock safely
     params.items.forEach((item) => {
-      db.adjustStock(
-        item.productId,
-        -item.quantity,
-        "Stock Count Audit",
-        `Order placement reservation for ${item.name}`,
-        "System Automated Checkout",
-        "System"
+      const p = products.find(
+        (prod) => prod.id === item.productId || prod.name.toLowerCase() === item.name.toLowerCase()
       );
+      if (p) {
+        db.adjustStock(
+          p.id,
+          -item.quantity,
+          "Stock Count Audit",
+          `Order placement reservation for ${item.name}`,
+          "System Automated Checkout",
+          "System"
+        );
+      }
     });
 
     const now = new Date();

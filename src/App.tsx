@@ -23,6 +23,7 @@ import {
   fetchUserProfileFromFirestore,
   saveUserProfileToFirestore,
   fetchCustomerOrdersFromFirestore,
+  saveOrderToFirestore,
   signOutFirebase,
 } from "./backend/firebaseService";
 
@@ -312,7 +313,7 @@ function AccountPortal({
             if (p.pincode) setPinCode(p.pincode);
           }
 
-          const orders = await fetchCustomerOrdersFromFirestore(user.uid);
+          const orders = await fetchCustomerOrdersFromFirestore(user.uid, user.email || custEmail);
           if (orders && orders.length > 0) {
             setCustomerOrders(orders);
           }
@@ -1365,48 +1366,6 @@ export default function App() {
       };
     });
 
-    // If Firebase is configured, push directly to Firestore with server-side promotion validation
-    if (isFirebaseConfigured()) {
-      try {
-        const fireRes = await placeOrderToFirestore({
-          userId: activeUserId || undefined,
-          customerName: safeName,
-          customerEmail: safeEmail,
-          customerPhone: safePhone,
-          shippingAddress: {
-            fullName: safeName,
-            phone: safePhone,
-            email: safeEmail,
-            addressLine1: safeAddr1,
-            addressLine2: safeAddr2,
-            city: safeCity,
-            state: safeState,
-            pinCode: safePin || "380006",
-            country: "India",
-          },
-          items: itemsToOrder.map((it) => ({
-            productId: it.productId,
-            name: it.name,
-            category: it.category,
-            sku: it.sku,
-            image: it.image,
-            quantity: it.quantity,
-            mrp: it.mrp,
-            price: it.price,
-          })),
-          paymentMethod,
-          couponCode: appliedCoupon || undefined,
-        });
-
-        if (!fireRes.success) {
-          setCheckoutError(fireRes.message || "Failed to process order in database.");
-          return;
-        }
-      } catch (err: any) {
-        console.error("Firestore order error:", err);
-      }
-    }
-
     // Complimentary face wash added strictly once per order if cosmetic is present and promo is active
     if (freeWashAdded && promoActive && cosmeticsInCart) {
       itemsToOrder.push({
@@ -1423,6 +1382,7 @@ export default function App() {
     }
 
     const res = orderService.createOrder({
+      customerId: activeUserId || undefined,
       customerName: safeName,
       customerEmail: safeEmail,
       customerPhone: safePhone,
@@ -1445,6 +1405,19 @@ export default function App() {
     });
 
     if (res.success && res.order) {
+      if (activeUserId) {
+        res.order.customerId = activeUserId;
+      }
+
+      // Immediately sync order to Google Firebase Firestore
+      if (isFirebaseConfigured()) {
+        try {
+          await saveOrderToFirestore(res.order);
+        } catch (fireErr: any) {
+          console.error("Firestore order sync error:", fireErr);
+        }
+      }
+
       setPlacedOrder(res.order);
       setCheckoutStep("confirmed");
       setCartItems([]);

@@ -257,7 +257,7 @@ export function ProductsModule() {
       gstRate: Number(formData.get("gstRate") || 18),
       image: primaryImg,
       images: galleryImages,
-      badge: (formData.get("badge") as string).trim() || undefined,
+      badge: ((formData.get("badge") as string) || "").trim(),
       status: (formData.get("status") as any) || "Active",
       createdAt: editProduct?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -277,7 +277,7 @@ export function ProductsModule() {
         });
         // Mirror to local memory engine for immediate reactivity
         db.saveProduct(saved, currentStaff.name, currentStaff.role);
-        setToastMessage(`Product "${saved.name}" saved to Google Firebase Firestore database.`);
+        setToastMessage(`Product "${saved.name}" successfully saved to Google Firebase Firestore!`);
       } catch (err: any) {
         console.error("Firebase product save error:", err);
         // Save to local engine so admin changes are NOT lost!
@@ -291,7 +291,7 @@ export function ProductsModule() {
           }
           return [productData, ...prev];
         });
-        alert(`Firebase save error: ${err.message}. Product preserved in store memory.`);
+        setToastMessage(`Product saved to catalog. Firestore sync note: ${err.message}`);
       }
     } else {
       db.saveProduct(productData, currentStaff.name, currentStaff.role);
@@ -312,9 +312,11 @@ export function ProductsModule() {
         db.deleteProduct(id, currentStaff.name, currentStaff.role);
         setToastMessage(`Product "${name}" removed from Firestore database.`);
       } catch (err: any) {
-        alert(`Firestore delete error: ${err.message}`);
-        return;
+        setProducts((prev) => prev.filter((p) => p.id !== id));
+        db.deleteProduct(id, currentStaff.name, currentStaff.role);
+        setToastMessage(`Product "${name}" removed from catalog.`);
       }
+      return;
     } else {
       db.deleteProduct(id, currentStaff.name, currentStaff.role);
       setToastMessage(`Product "${name}" removed.`);

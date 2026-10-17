@@ -5,8 +5,9 @@ import { authService } from "../../../backend/authService";
 import { orderService } from "../../../backend/orderService";
 import { analyticsService } from "../../../backend/analyticsService";
 import { OrderDetailModal } from "../OrderDetailModal";
-import { isFirebaseConfigured, getFirebaseConfigStatus } from "../../../lib/firebase";
-import { fetchAllOrdersFromFirestore } from "../../../backend/firebaseService";
+import { isFirebaseConfigured, getFirebaseConfigStatus, firestoreDb } from "../../../lib/firebase";
+import { fetchAllOrdersFromFirestore, saveOrderToFirestore } from "../../../backend/firebaseService";
+import { collection, onSnapshot } from "firebase/firestore";
 
 export function OrdersModule() {
   const currentStaff = authService.getCurrentUser();
@@ -15,21 +16,51 @@ export function OrdersModule() {
   const staffList = db.getStaff();
 
   useEffect(() => {
-    if (isFirebaseConfigured()) {
-      fetchAllOrdersFromFirestore().then((remoteOrders) => {
-        if (remoteOrders && remoteOrders.length > 0) {
-          setOrdersList(remoteOrders);
+    let unsubSnapshot: (() => void) | undefined;
+
+    const mergeAndSet = (remoteOrders?: Order[]) => {
+      const localOrders = db.getOrders();
+      if (!remoteOrders || remoteOrders.length === 0) {
+        setOrdersList(localOrders);
+        return;
+      }
+      // Combine remote and local orders deduplicating by ID
+      const map = new Map<string, Order>();
+      localOrders.forEach((o) => map.set(o.id, o));
+      remoteOrders.forEach((o) => map.set(o.id, o));
+      const combined = Array.from(map.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setOrdersList(combined);
+
+      // Keep local db mirrored so OrderDetailModal can view full timeline and items
+      remoteOrders.forEach((o) => {
+        if (!db.getOrderById(o.id)) {
+          db.saveOrder(o);
         }
+      });
+    };
+
+    if (isFirebaseConfigured() && firestoreDb) {
+      fetchAllOrdersFromFirestore().then((remoteOrders) => {
+        mergeAndSet(remoteOrders);
+      });
+
+      unsubSnapshot = onSnapshot(collection(firestoreDb, "orders"), (snap) => {
+        const remoteOrders: Order[] = [];
+        snap.forEach((d) => remoteOrders.push(d.data() as Order));
+        mergeAndSet(remoteOrders);
       });
     }
 
     const unsub = db.subscribe(() => {
-      if (!isFirebaseConfigured()) {
-        setOrdersList(db.getOrders());
-      }
+      mergeAndSet();
     });
 
-    return () => unsub();
+    return () => {
+      if (unsubSnapshot) unsubSnapshot();
+      unsub();
+    };
   }, []);
 
   const allOrders = ordersList;
@@ -143,7 +174,17 @@ export function OrdersModule() {
         currentStaff,
         `Bulk operation executed by ${currentStaff.name}`
       );
-      if (res.success) count++;
+      if (res.success) {
+        count++;
+        if (isFirebaseConfigured()) {
+          const updated = db.getOrderById(id);
+          if (updated) {
+            saveOrderToFirestore(updated).catch((err) =>
+              console.error("Firestore bulk order sync error:", err)
+            );
+          }
+        }
+      }
     });
 
     setActionMessage(`Bulk updated ${count} of ${selectedOrderIds.length} selected orders to ${bulkActionTarget}.`);

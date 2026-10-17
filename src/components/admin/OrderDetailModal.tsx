@@ -4,6 +4,8 @@ import { db } from "../../backend/db";
 import { orderService } from "../../backend/orderService";
 import { authService } from "../../backend/authService";
 import { invoiceService } from "../../backend/invoiceService";
+import { isFirebaseConfigured } from "../../lib/firebase";
+import { saveOrderToFirestore } from "../../backend/firebaseService";
 
 interface OrderDetailModalProps {
   orderId: string;
@@ -45,6 +47,17 @@ export function OrderDetailModal({ orderId, onClose, onOrderUpdated }: OrderDeta
   const canAssign = authService.can("orders:assign", currentStaff);
   const canCancel = authService.can("orders:cancel", currentStaff);
 
+  const syncToFirestore = () => {
+    if (isFirebaseConfigured()) {
+      const updated = db.getOrderById(order.id);
+      if (updated) {
+        saveOrderToFirestore(updated).catch((err) =>
+          console.error("Error syncing updated order to Firestore:", err)
+        );
+      }
+    }
+  };
+
   const handleStatusChange = () => {
     if (!selectedStatus || selectedStatus === order.orderStatus) return;
     setFeedbackError("");
@@ -62,6 +75,7 @@ export function OrderDetailModal({ orderId, onClose, onOrderUpdated }: OrderDeta
       setFeedbackMsg(`Order status successfully updated to ${selectedStatus}.`);
       setTransitionNote("");
       setTransitionReason("");
+      syncToFirestore();
       onOrderUpdated?.();
     } else {
       setFeedbackError(res.error || "Failed to update status.");
@@ -72,6 +86,7 @@ export function OrderDetailModal({ orderId, onClose, onOrderUpdated }: OrderDeta
     const targetStaff = staffList.find((s) => s.id === selectedStaffId);
     if (!targetStaff) return;
     orderService.assignStaff(order.id, targetStaff, currentStaff, staffTaskNote);
+    syncToFirestore();
     setFeedbackMsg(`Order assigned to ${targetStaff.name}.`);
     onOrderUpdated?.();
   };
@@ -83,6 +98,7 @@ export function OrderDetailModal({ orderId, onClose, onOrderUpdated }: OrderDeta
     }
     const finalUrl = trackingUrl || `https://www.trackcourier.in/track/${trackingNumber}`;
     orderService.updateShippingDetails(order.id, carrier, trackingNumber, finalUrl, currentStaff);
+    syncToFirestore();
     setFeedbackMsg(`Carrier ${carrier} tracking ${trackingNumber} updated.`);
     onOrderUpdated?.();
   };
@@ -90,6 +106,7 @@ export function OrderDetailModal({ orderId, onClose, onOrderUpdated }: OrderDeta
   const handleAddNote = () => {
     if (!internalNoteText.trim()) return;
     orderService.addInternalNote(order.id, internalNoteText.trim(), currentStaff);
+    syncToFirestore();
     setInternalNoteText("");
     setFeedbackMsg("Internal staff note recorded.");
     onOrderUpdated?.();
