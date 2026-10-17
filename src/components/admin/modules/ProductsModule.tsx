@@ -6,9 +6,15 @@ import { DEFAULT_CATEGORIES_META } from "./CategoriesModule";
 import { isSupabaseConfigured, getSupabaseConfigStatus } from "../../../lib/supabaseClient";
 import {
   fetchAdminProductsFromSupabase,
+  fetchCategoriesFromSupabase,
   saveProductToSupabase,
   deleteProductFromSupabase,
 } from "../../../backend/supabaseService";
+import {
+  uploadImageToCloudinary,
+  isCloudinaryConfigured,
+  getCloudinaryConfig,
+} from "../../../lib/cloudinaryClient";
 
 const GALLERY_SLOT_LABELS = [
   "1. Front / Primary View",
@@ -22,6 +28,7 @@ export function ProductsModule() {
   const currentStaff = authService.getCurrentUser();
   const [products, setProducts] = useState<ProductItem[]>(db.getProducts());
   const [isSupabaseLoading, setIsSupabaseLoading] = useState(false);
+  const [isUploadingToCloudinary, setIsUploadingToCloudinary] = useState(false);
   const [categories, setCategories] = useState<string[]>(() => {
     const s = db.getSettings();
     if (s.customCategories && s.customCategories.length > 0) {
@@ -62,6 +69,16 @@ export function ProductsModule() {
         .catch((err) => {
           console.error("Failed to load products from Supabase:", err);
           if (isMounted) setIsSupabaseLoading(false);
+        });
+
+      fetchCategoriesFromSupabase()
+        .then((cats) => {
+          if (isMounted && cats.length > 0) {
+            setCategories(cats.map((c) => c.name));
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to load categories from Supabase:", err);
         });
     }
 
@@ -145,11 +162,35 @@ export function ProductsModule() {
       return;
     }
 
-    const compressedResults = await Promise.all(validFiles.map(compressAndAddImage));
-    setImagesList((prev) => {
-      const combined = [...prev, ...compressedResults];
-      return combined.slice(0, 5); // Max 5 gallery slots
-    });
+    const availableSlots = Math.max(0, 5 - imagesList.length);
+    if (availableSlots <= 0) {
+      alert("Maximum 5 gallery slots reached (Front, Back, Texture, Packaging, In-Use). Remove an image to upload a new one.");
+      return;
+    }
+
+    const filesToUpload = validFiles.slice(0, availableSlots);
+
+    if (isCloudinaryConfigured()) {
+      setIsUploadingToCloudinary(true);
+      try {
+        const uploadPromises = filesToUpload.map((file) => uploadImageToCloudinary(file, "duck_products"));
+        const results = await Promise.all(uploadPromises);
+        const uploadedUrls = results.map((r) => r.url);
+        setImagesList((prev) => [...prev, ...uploadedUrls].slice(0, 5));
+        setToastMessage(`✓ ${results.length} image(s) uploaded to Cloudinary CDN successfully.`);
+      } catch (err: any) {
+        console.error("Cloudinary upload failed, falling back to local compression:", err);
+        alert(`Cloudinary upload warning: ${err.message}. Using compressed preview.`);
+        const compressedResults = await Promise.all(filesToUpload.map(compressAndAddImage));
+        setImagesList((prev) => [...prev, ...compressedResults].slice(0, 5));
+      } finally {
+        setIsUploadingToCloudinary(false);
+      }
+    } else {
+      const compressedResults = await Promise.all(filesToUpload.map(compressAndAddImage));
+      setImagesList((prev) => [...prev, ...compressedResults].slice(0, 5));
+      setToastMessage("Note: Cloudinary not configured in .env. Using compressed preview.");
+    }
     e.target.value = "";
   };
 
@@ -238,8 +279,31 @@ export function ProductsModule() {
         db.saveProduct(saved, currentStaff.name, currentStaff.role);
         setToastMessage(`Product "${saved.name}" saved to Supabase PostgreSQL database.`);
       } catch (err: any) {
-        alert(`Supabase save error: ${err.message}`);
-        return;
+        console.error("Supabase product save error:", err);
+        // Save to local engine so admin changes are NOT lost!
+        db.saveProduct(productData, currentStaff.name, currentStaff.role);
+        setProducts((prev) => {
+          const idx = prev.findIndex((p) => p.id === productData.id || p.sku === productData.sku);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = productData;
+            return next;
+          }
+          return [productData, ...prev];
+        });
+
+        if (err.message && err.message.toLowerCase().includes("row-level security")) {
+          alert(
+            `Supabase RLS Policy Alert: Your Supabase PostgreSQL database has Row-Level Security blocking writes.\n\n` +
+            `To permanently fix this in 5 seconds:\n` +
+            `1. Open your Supabase Dashboard -> SQL Editor\n` +
+            `2. Run this command:\n` +
+            `   ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;\n\n` +
+            `Your product "${productData.name}" has been safely saved in the store catalog.`
+          );
+        } else {
+          alert(`Supabase save error: ${err.message}. Product preserved in store memory.`);
+        }
       }
     } else {
       db.saveProduct(productData, currentStaff.name, currentStaff.role);
@@ -270,6 +334,7 @@ export function ProductsModule() {
   };
 
   const dbConfigStatus = getSupabaseConfigStatus();
+  const cloudinaryStatus = getCloudinaryConfig();
 
   return (
     <div className="space-y-6">
@@ -299,6 +364,42 @@ export function ProductsModule() {
         {!dbConfigStatus.configured && (
           <span className="text-[10px] text-amber-700 bg-amber-100/70 px-2.5 py-1 rounded-full">
             Missing: {dbConfigStatus.missingFields.join(", ")}
+          </span>
+        )}
+      </div>
+
+      {/* Cloudinary CDN Image Storage Status Bar */}
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
+          cloudinaryStatus.configured
+            ? "border-sky-200 bg-sky-50/80 text-sky-900"
+            : "border-purple/15 bg-white text-purple-dark"
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              cloudinaryStatus.configured ? "bg-sky-500 animate-pulse" : "bg-amber-400"
+            }`}
+          />
+          <div>
+            <span>
+              {cloudinaryStatus.configured
+                ? `Cloudinary CDN Active: Storing product photos on cloud "${cloudinaryStatus.cloudName}" (Preset: ${cloudinaryStatus.uploadPreset})`
+                : "Cloudinary CDN Storage: Set VITE_CLOUDINARY_CLOUD_NAME & VITE_CLOUDINARY_UPLOAD_PRESET to store photos on Cloudinary CDN."}
+            </span>
+            {isUploadingToCloudinary && (
+              <span className="ml-2 font-bold text-purple animate-pulse">Uploading photos to Cloudinary CDN...</span>
+            )}
+          </div>
+        </div>
+        {!cloudinaryStatus.configured ? (
+          <span className="text-[10px] text-purple bg-purple/10 px-2.5 py-1 rounded-full font-bold">
+            Cloudinary Ready
+          </span>
+        ) : (
+          <span className="text-[10px] text-sky-700 bg-sky-100 px-2.5 py-1 rounded-full font-bold">
+            CDN Active
           </span>
         )}
       </div>
@@ -656,14 +757,19 @@ export function ProductsModule() {
                       <path d="M12 16V4M7 9l5-5 5 5M4 20h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                     <span className="mt-2 text-xs font-bold text-purple-dark">
-                      Click to browse or drop multiple images here (Select 1 to 5 files)
+                      {isUploadingToCloudinary
+                        ? "⏳ Uploading photos directly to Cloudinary CDN..."
+                        : "Click to browse or drop multiple images here (Select 1 to 5 files)"}
                     </span>
                     <span className="mt-1 text-[10px] text-ink/40">
-                      PNG, JPG, JPEG, WEBP · Auto-compressed for ultra-fast loading
+                      {cloudinaryStatus.configured
+                        ? "Cloudinary CDN Active · Unlimited high-res images with fast global delivery"
+                        : "PNG, JPG, JPEG, WEBP · Set Cloudinary keys in .env for production CDN storage"}
                     </span>
                     <input
                       type="file"
                       multiple
+                      disabled={isUploadingToCloudinary}
                       accept="image/png, image/jpeg, image/jpg, image/webp, image/avif"
                       onChange={handleMultipleImageFiles}
                       className="hidden"

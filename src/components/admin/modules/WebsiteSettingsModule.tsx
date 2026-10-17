@@ -8,6 +8,11 @@ import {
   fetchSiteSettingsFromSupabase,
   saveSiteSettingsToSupabase,
 } from "../../../backend/supabaseService";
+import {
+  uploadImageToCloudinary,
+  isCloudinaryConfigured,
+  getCloudinaryConfig,
+} from "../../../lib/cloudinaryClient";
 
 export function WebsiteSettingsModule() {
   const currentStaff = authService.getCurrentUser();
@@ -16,8 +21,10 @@ export function WebsiteSettingsModule() {
   const [formState, setFormState] = useState<StoreSettings>({ ...settings });
   const [pinCodesString, setPinCodesString] = useState(settings.serviceablePinCodes.join(", "));
   const [feedback, setFeedback] = useState("");
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   const canManage = authService.can("settings:manage", currentStaff);
+  const cloudinaryStatus = getCloudinaryConfig();
 
   useEffect(() => {
     let isMounted = true;
@@ -38,6 +45,42 @@ export function WebsiteSettingsModule() {
       isMounted = false;
     };
   }, []);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please select a valid image file (PNG, SVG, JPG, WEBP).");
+      return;
+    }
+
+    if (isCloudinaryConfigured()) {
+      setIsUploadingLogo(true);
+      try {
+        const res = await uploadImageToCloudinary(file, "duck_branding");
+        setFormState((prev) => ({ ...prev, logoUrl: res.url }));
+        setFeedback("✓ Store Logo uploaded to Cloudinary CDN successfully.");
+      } catch (err: any) {
+        console.error("Cloudinary logo upload failed:", err);
+        alert(`Cloudinary upload warning: ${err.message}. Using local file preview.`);
+        const reader = new FileReader();
+        reader.onload = () => {
+          setFormState((prev) => ({ ...prev, logoUrl: reader.result as string }));
+        };
+        reader.readAsDataURL(file);
+      } finally {
+        setIsUploadingLogo(false);
+      }
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setFormState((prev) => ({ ...prev, logoUrl: reader.result as string }));
+        setFeedback("Logo updated locally. Configure Cloudinary in .env to store on global CDN.");
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = "";
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,6 +142,42 @@ export function WebsiteSettingsModule() {
         )}
       </div>
 
+      {/* Cloudinary CDN Image Storage Status Bar */}
+      <div
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold ${
+          cloudinaryStatus.configured
+            ? "border-sky-200 bg-sky-50/80 text-sky-900"
+            : "border-purple/15 bg-white text-purple-dark"
+        }`}
+      >
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              cloudinaryStatus.configured ? "bg-sky-500 animate-pulse" : "bg-amber-400"
+            }`}
+          />
+          <div>
+            <span>
+              {cloudinaryStatus.configured
+                ? `Cloudinary CDN Active: Storing logo & banners on cloud "${cloudinaryStatus.cloudName}" (Preset: ${cloudinaryStatus.uploadPreset})`
+                : "Cloudinary CDN Storage: Set VITE_CLOUDINARY_CLOUD_NAME & VITE_CLOUDINARY_UPLOAD_PRESET for image CDN storage."}
+            </span>
+            {isUploadingLogo && (
+              <span className="ml-2 font-bold text-purple animate-pulse">Uploading logo to Cloudinary CDN...</span>
+            )}
+          </div>
+        </div>
+        {!cloudinaryStatus.configured ? (
+          <span className="text-[10px] text-purple bg-purple/10 px-2.5 py-1 rounded-full font-bold">
+            Cloudinary Ready
+          </span>
+        ) : (
+          <span className="text-[10px] text-sky-700 bg-sky-100 px-2.5 py-1 rounded-full font-bold">
+            CDN Active
+          </span>
+        )}
+      </div>
+
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <span className="text-[10px] font-bold tracking-[0.16em] text-purple uppercase">System Configuration</span>
@@ -113,6 +192,85 @@ export function WebsiteSettingsModule() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Brand Assets & Cloudinary Media */}
+        <section className="rounded-3xl border border-purple/10 bg-white p-6 shadow-sm space-y-5">
+          <div>
+            <span className="text-[9px] font-bold uppercase text-purple tracking-wider">Cloudinary CDN Assets</span>
+            <h3 className="font-display text-xl font-bold text-purple-dark">Store Logo & Homepage Banners</h3>
+            <p className="mt-1 text-xs text-ink/50">Manage your brand logo, homepage banner slogans, and hero titles.</p>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2 text-xs">
+            {/* Logo Uploader */}
+            <div className="sm:col-span-2 flex flex-col sm:flex-row items-center gap-5 rounded-2xl border border-purple/15 bg-canvas/40 p-4">
+              <div className="h-20 w-20 shrink-0 rounded-2xl border border-purple/20 bg-white p-2 flex items-center justify-center shadow-xs">
+                {formState.logoUrl ? (
+                  <img src={formState.logoUrl} alt="Store Logo" className="max-h-full max-w-full object-contain" />
+                ) : (
+                  <img src="/duck-logo.png" alt="Duck Logo" className="max-h-full max-w-full object-contain" />
+                )}
+              </div>
+              <div className="flex-1 space-y-2 text-left">
+                <span className="block font-bold text-xs text-purple-dark">Brand Logo (Cloudinary CDN)</span>
+                <p className="text-[11px] text-ink/60">
+                  Select a PNG, SVG, or WEBP image. Uploads directly to Cloudinary and saves the CDN URL into Supabase site_settings.
+                </p>
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <label className="cursor-pointer rounded-full bg-purple px-4 py-1.5 text-xs font-bold text-white uppercase hover:bg-purple-dark transition shadow-xs">
+                    {isUploadingLogo ? "⏳ Uploading..." : "Upload Logo to Cloudinary"}
+                    <input
+                      type="file"
+                      disabled={isUploadingLogo}
+                      accept="image/png, image/svg+xml, image/jpeg, image/webp"
+                      onChange={handleLogoUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  {formState.logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setFormState({ ...formState, logoUrl: undefined })}
+                      className="rounded-full border border-red-200 px-3 py-1.5 text-[11px] font-bold text-red-600 hover:bg-red-50"
+                    >
+                      Reset to Default Logo
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <label className="block">
+              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Hero Headline</span>
+              <input
+                value={formState.heroHeadline || ""}
+                onChange={(e) => setFormState({ ...formState, heroHeadline: e.target.value })}
+                placeholder="e.g. Skin so healthy, it practically quacks."
+                className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-semibold text-xs"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Hero Subtitle</span>
+              <input
+                value={formState.heroSubtitle || ""}
+                onChange={(e) => setFormState({ ...formState, heroSubtitle: e.target.value })}
+                placeholder="e.g. Clinical Ayurvedic Botanicals · Zero Harsh Chemicals"
+                className="w-full rounded-xl border border-purple/15 p-2.5 outline-none font-semibold text-xs"
+              />
+            </label>
+
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block font-bold uppercase text-purple text-[9px]">Promo Banner Slogan (Complimentary Face Wash)</span>
+              <input
+                value={formState.promoBannerText || ""}
+                onChange={(e) => setFormState({ ...formState, promoBannerText: e.target.value })}
+                placeholder="e.g. Buy Any Cosmetic, Get a 150ml Daily Fresh Face Wash FREE"
+                className="w-full rounded-xl border border-purple/15 p-2.5 outline-none text-xs"
+              />
+            </label>
+          </div>
+        </section>
+
         {/* Business Identity */}
         <section className="rounded-3xl border border-purple/10 bg-white p-6 shadow-sm">
           <h3 className="font-display text-xl font-bold text-purple-dark">Business Identity & Contact Details</h3>

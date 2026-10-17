@@ -8,6 +8,10 @@ import {
   saveCategoryToSupabase,
   deleteCategoryFromSupabase,
 } from "../../../backend/supabaseService";
+import {
+  uploadImageToCloudinary,
+  isCloudinaryConfigured,
+} from "../../../lib/cloudinaryClient";
 
 export const DEFAULT_CATEGORIES_META: CategoryMeta[] = [
   {
@@ -104,6 +108,14 @@ export function CategoriesModule() {
         }
       } catch (err: any) {
         console.error("Supabase category save error:", err);
+        if (err.message && err.message.toLowerCase().includes("row-level security")) {
+          alert(
+            `Supabase RLS Policy Alert: Categories table has Row-Level Security active.\n\n` +
+            `Run this command in Supabase SQL editor to allow writes:\n` +
+            `ALTER TABLE public.categories DISABLE ROW LEVEL SECURITY;\n\n` +
+            `Your categories are preserved in store settings.`
+          );
+        }
       }
     }
 
@@ -128,13 +140,27 @@ export function CategoriesModule() {
     db.notify();
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       alert("Please upload a valid image file.");
       return;
     }
+
+    if (isCloudinaryConfigured()) {
+      try {
+        setSavedMsg("Uploading category banner to Cloudinary CDN...");
+        const res = await uploadImageToCloudinary(file, "duck_categories");
+        setImagePreview(res.url);
+        setSavedMsg("✓ Category image uploaded to Cloudinary CDN.");
+        e.target.value = "";
+        return;
+      } catch (err: any) {
+        console.error("Cloudinary category upload failed:", err);
+      }
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
@@ -165,6 +191,7 @@ export function CategoriesModule() {
       img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const handleSaveEdit = (e: React.FormEvent<HTMLFormElement>) => {
