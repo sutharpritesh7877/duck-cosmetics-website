@@ -1620,27 +1620,63 @@ export default function App() {
         <div className="hero-products relative flex min-h-[32rem] items-end justify-center overflow-hidden bg-mint px-6 pb-12">
           <div className="absolute top-10 right-10 h-40 w-40 rounded-full bg-white/35 blur-2xl" />
           <div className="absolute bottom-16 left-12 h-52 w-52 rounded-full bg-lilac blur-2xl" />
-          <div className="pack pack-oil z-10">
-            <div className="pack-cap" />
-            <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
-            <small>ORTHO</small>
-            <strong>PAIN OIL</strong>
-            <span>Herbal comfort</span>
-          </div>
-          <div className="pack pack-baby z-20">
-            <div className="pack-pump" />
-            <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
-            <small>BABY CARE</small>
-            <strong>SOFT LOTION</strong>
-            <span>Calendula + oat</span>
-          </div>
-          <div className="pack pack-rub z-30">
-            <div className="pack-lid" />
-            <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
-            <small>VAPOR</small>
-            <strong>COMFORT RUB</strong>
-            <span>Eucalyptus + mint</span>
-          </div>
+
+          {storeSettings.heroImageUrl ? (
+            <div className="relative z-10 flex h-full w-full items-center justify-center p-6">
+              <img
+                src={storeSettings.heroImageUrl}
+                alt={storeSettings.heroHeadline || "Duck Cosmetics Hero Products"}
+                className="max-h-[28rem] w-auto max-w-full rounded-3xl object-contain drop-shadow-2xl transition duration-500 hover:scale-105"
+              />
+            </div>
+          ) : (
+            <>
+              {/* Product 1 (Left - Ortho / Custom) */}
+              <div className="pack pack-oil z-10">
+                <div className="pack-cap" />
+                {storeSettings.heroProduct1?.image ? (
+                  <img src={storeSettings.heroProduct1.image} alt={storeSettings.heroProduct1.title || "Product 1"} className="h-full w-full object-cover rounded-2xl" />
+                ) : (
+                  <>
+                    <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
+                    <small>{storeSettings.heroProduct1?.label || "ORTHO"}</small>
+                    <strong>{storeSettings.heroProduct1?.title || "PAIN OIL"}</strong>
+                    <span>{storeSettings.heroProduct1?.subtitle || "Herbal comfort"}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Product 2 (Center - Baby Care / Custom) */}
+              <div className="pack pack-baby z-20">
+                <div className="pack-pump" />
+                {storeSettings.heroProduct2?.image ? (
+                  <img src={storeSettings.heroProduct2.image} alt={storeSettings.heroProduct2.title || "Product 2"} className="h-full w-full object-cover rounded-2xl" />
+                ) : (
+                  <>
+                    <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
+                    <small>{storeSettings.heroProduct2?.label || "BABY CARE"}</small>
+                    <strong>{storeSettings.heroProduct2?.title || "SOFT LOTION"}</strong>
+                    <span>{storeSettings.heroProduct2?.subtitle || "Calendula + oat"}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Product 3 (Right - Vapor / Custom) */}
+              <div className="pack pack-rub z-30">
+                <div className="pack-lid" />
+                {storeSettings.heroProduct3?.image ? (
+                  <img src={storeSettings.heroProduct3.image} alt={storeSettings.heroProduct3.title || "Product 3"} className="h-full w-full object-cover rounded-2xl" />
+                ) : (
+                  <>
+                    <img src={storeSettings.logoUrl || "/duck-logo.png"} onError={(e) => { (e.target as HTMLImageElement).src = "/duck-logo.png"; }} alt="" />
+                    <small>{storeSettings.heroProduct3?.label || "VAPOR"}</small>
+                    <strong>{storeSettings.heroProduct3?.title || "COMFORT RUB"}</strong>
+                    <span>{storeSettings.heroProduct3?.subtitle || "Eucalyptus + mint"}</span>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </section>
 

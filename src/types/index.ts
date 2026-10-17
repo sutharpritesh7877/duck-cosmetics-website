@@ -390,6 +390,10 @@ export interface StoreSettings {
   heroHeadline?: string;
   heroSubtitle?: string;
   promoBannerText?: string;
+  heroImageUrl?: string;
+  heroProduct1?: { label: string; title: string; subtitle: string; image?: string };
+  heroProduct2?: { label: string; title: string; subtitle: string; image?: string };
+  heroProduct3?: { label: string; title: string; subtitle: string; image?: string };
   productionDbConfig?: {
     provider: "supabase" | "postgresql" | "firebase" | "mongodb" | "custom_rest";
     apiUrl: string;
