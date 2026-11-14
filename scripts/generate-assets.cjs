@@ -66,17 +66,26 @@ async function run() {
 
   console.log('✓ Created public/og-image.jpg');
 
-  // 2. Generate Favicon with official brand purple #5D3A7A
-  const faviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect width="64" height="64" rx="16" fill="#5D3A7A"/>
-  <!-- Duck body matching brand emblem -->
-  <path d="M46 34c0 7.732-6.268 14-14 14s-14-6.268-14-14c0-3.5 1.5-6.5 4-8.5.5-2.5 2-6 6.5-7.5 4.5-1.5 8 .5 9.5 3 2.5 1.5 5 4.5 4 13z" fill="#FFFFFF"/>
-  <!-- Beak -->
-  <path d="M48 24c3.5.5 6 1.8 7 3.5-2 1.5-5 1.8-7 1.2z" fill="#E8C37D"/>
-  <!-- Eye -->
-  <circle cx="41" cy="23" r="2.2" fill="#5D3A7A"/>
-  <!-- Wing accent -->
-  <path d="M26 36c2.5-3 6.5-4 10-2.5-1 4-4.5 6.5-8.5 6.5-1 0-1.5-.5-1.5-4z" fill="#EADBF7"/>
+  // 2. Generate Favicon with official brand logo
+  const inputLogo = path.resolve('public/duck-logo.jpg');
+  const trimmed = await sharp(inputLogo).trim().png().toBuffer();
+  const trimmedMeta = await sharp(trimmed).metadata();
+
+  const logoWidth = 432;
+  const logoHeight = Math.round((logoWidth / trimmedMeta.width) * trimmedMeta.height);
+  const resizedTrimmed = await sharp(trimmed)
+    .resize(logoWidth, logoHeight, { fit: 'inside' })
+    .png()
+    .toBuffer();
+
+  const base64Data = resizedTrimmed.toString('base64');
+  const topOffset = Math.round((512 - logoHeight) / 2);
+  const leftOffset = Math.round((512 - logoWidth) / 2);
+
+  const faviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="104" fill="#FFFFFF"/>
+  <rect width="512" height="512" rx="104" fill="none" stroke="#5D3A7A" stroke-width="12" stroke-opacity="0.16"/>
+  <image href="data:image/png;base64,${base64Data}" x="${leftOffset}" y="${topOffset}" width="${logoWidth}" height="${logoHeight}" preserveAspectRatio="xMidYMid meet"/>
 </svg>`;
 
   fs.writeFileSync('public/favicon.svg', faviconSvg, 'utf8');
@@ -84,7 +93,10 @@ async function run() {
   // Also output favicon.png (32x32 and 192x192)
   await sharp(Buffer.from(faviconSvg)).resize(32, 32).png().toFile('public/favicon-32x32.png');
   await sharp(Buffer.from(faviconSvg)).resize(192, 192).png().toFile('public/favicon-192x192.png');
-  await sharp(Buffer.from(faviconSvg)).resize(48, 48).png().toFile('public/favicon.ico');
+  await sharp(Buffer.from(faviconSvg)).resize(180, 180).png().toFile('public/apple-touch-icon.png');
+  await sharp(Buffer.from(faviconSvg)).resize(48, 48).toFile('public/favicon.ico');
+  fs.copyFileSync('public/favicon.ico', 'src/app/favicon.ico');
+  await sharp(Buffer.from(faviconSvg)).resize(32, 32).png().toFile('src/app/icon.png');
 
   console.log('✓ Created public/favicon.svg, favicon.ico, and PNG favicons');
 }
