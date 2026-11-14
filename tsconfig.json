@@ -19,22 +19,15 @@
         "name": "next"
       }
     ],
+    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
   },
   "include": [
     "next-env.d.ts",
-    "src/app/**/*.ts",
-    "src/app/**/*.tsx",
-    "src/components/home/**/*.tsx",
-    "src/components/layout/**/*.tsx",
-    "src/components/ui/**/*.tsx",
-    "src/components/admin/AdminShell.tsx",
-    "src/lib/**/*.ts",
-    "src/types/**/*.ts",
-    "src/utils/**/*.ts",
-    "middleware.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
     ".next/types/**/*.ts"
   ],
   "exclude": [
