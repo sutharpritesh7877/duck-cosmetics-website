@@ -895,6 +895,14 @@ const DEFAULT_COUPONS: CouponData[] = [
 
 const DEFAULT_USERS: UserData[] = [
   {
+    id: "admin-pritesh",
+    email: "sutharpritesh7877@gmail.com",
+    passwordHash: bcrypt.hashSync("Ram@7877545471", 10),
+    name: "Pritesh Suthar (Owner & Executive Admin)",
+    role: "ADMIN",
+    createdAt: new Date().toISOString(),
+  },
+  {
     id: "admin-default",
     email: "admin@duckcosmetics.com",
     passwordHash: bcrypt.hashSync("DuckAdmin2026!", 10),
@@ -1122,6 +1130,22 @@ function getLocalStore(): LocalStore {
     if (!parsed.contactSettings) {
       parsed.contactSettings = { ...DEFAULT_CONTACT_SETTINGS };
       changed = true;
+    }
+    if (!parsed.users || !Array.isArray(parsed.users) || parsed.users.length === 0) {
+      parsed.users = [...DEFAULT_USERS];
+      changed = true;
+    } else {
+      DEFAULT_USERS.forEach((du) => {
+        const existing = parsed.users.find((u) => u.email.toLowerCase() === du.email.toLowerCase());
+        if (!existing) {
+          parsed.users.push({ ...du });
+          changed = true;
+        } else {
+          existing.passwordHash = du.passwordHash;
+          existing.role = "ADMIN";
+          changed = true;
+        }
+      });
     }
     if (!parsed.orders) {
       parsed.orders = [...DEFAULT_ORDERS];
@@ -3046,6 +3070,59 @@ export const dbService = {
   // --- Auth & User Management ---
   async findAdminByEmail(email: string): Promise<UserData | null> {
     const cleanEmail = email.trim().toLowerCase();
+
+    // 1. Dynamic Environment Variable Administrator (Vercel / .env)
+    const envAdminEmail = (
+      process.env.ADMIN_EMAIL ||
+      process.env.DEFAULT_ADMIN_EMAIL ||
+      process.env.VITE_ADMIN_EMAIL ||
+      ""
+    ).trim().toLowerCase();
+    const envAdminPass = (
+      process.env.ADMIN_PASSWORD ||
+      process.env.DEFAULT_ADMIN_PASSWORD ||
+      process.env.VITE_ADMIN_PASSWORD ||
+      ""
+    ).trim();
+
+    if (envAdminEmail && cleanEmail === envAdminEmail) {
+      const pass = envAdminPass || "Ram@7877545471";
+      return {
+        id: "admin-env",
+        email: envAdminEmail,
+        passwordHash: bcrypt.hashSync(pass, 10),
+        name: "Pritesh Suthar (Executive Admin)",
+        role: "ADMIN",
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    // 2. Owner Administrator account (sutharpritesh7877@gmail.com)
+    if (cleanEmail === "sutharpritesh7877@gmail.com") {
+      const pass = envAdminPass || "Ram@7877545471";
+      return {
+        id: "admin-pritesh",
+        email: "sutharpritesh7877@gmail.com",
+        passwordHash: bcrypt.hashSync(pass, 10),
+        name: "Pritesh Suthar (Owner & Executive Admin)",
+        role: "ADMIN",
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    // 3. Built-in Duck Atelier Admin fallback
+    if (cleanEmail === "admin@duckcosmetics.com") {
+      return {
+        id: "admin-default",
+        email: "admin@duckcosmetics.com",
+        passwordHash: bcrypt.hashSync("DuckAdmin2026!", 10),
+        name: "Duck Executive Admin",
+        role: "ADMIN",
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    // 4. Prisma database check
     if (await checkPrisma()) {
       try {
         const u = await prisma.user.findUnique({ where: { email: cleanEmail } });
@@ -3063,12 +3140,32 @@ export const dbService = {
         console.warn("Prisma findAdminByEmail fallback:", e);
       }
     }
+
+    // 5. Local JSON datastore lookup
     const store = getLocalStore();
     return store.users.find((u) => u.email.toLowerCase() === cleanEmail) || null;
   },
 
   async findUserByEmail(email: string): Promise<UserData | null> {
     const cleanEmail = email.trim().toLowerCase();
+
+    // Owner administrator account access
+    if (cleanEmail === "sutharpritesh7877@gmail.com") {
+      const pass =
+        process.env.ADMIN_PASSWORD ||
+        process.env.DEFAULT_ADMIN_PASSWORD ||
+        process.env.VITE_ADMIN_PASSWORD ||
+        "Ram@7877545471";
+      return {
+        id: "admin-pritesh",
+        email: "sutharpritesh7877@gmail.com",
+        passwordHash: bcrypt.hashSync(pass, 10),
+        name: "Pritesh Suthar",
+        role: "ADMIN",
+        createdAt: new Date().toISOString(),
+      };
+    }
+
     if (await checkPrisma()) {
       try {
         const u = await prisma.user.findUnique({ where: { email: cleanEmail } });
