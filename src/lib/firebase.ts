@@ -2,13 +2,15 @@ import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 
+const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env || {} : {};
+
 export const firebaseConfig = {
-  apiKey: (import.meta.env.VITE_FIREBASE_API_KEY || "").trim(),
-  authDomain: (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "").trim(),
-  projectId: (import.meta.env.VITE_FIREBASE_PROJECT_ID || "").trim(),
-  storageBucket: (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "").trim(),
-  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "").trim(),
-  appId: (import.meta.env.VITE_FIREBASE_APP_ID || "").trim(),
+  apiKey: (process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || metaEnv.VITE_FIREBASE_API_KEY || "").trim(),
+  authDomain: (process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || metaEnv.VITE_FIREBASE_AUTH_DOMAIN || "").trim(),
+  projectId: (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || metaEnv.VITE_FIREBASE_PROJECT_ID || "").trim(),
+  storageBucket: (process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || metaEnv.VITE_FIREBASE_STORAGE_BUCKET || "").trim(),
+  messagingSenderId: (process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "").trim(),
+  appId: (process.env.NEXT_PUBLIC_FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || metaEnv.VITE_FIREBASE_APP_ID || "").trim(),
 };
 
 export function isFirebaseConfigured(): boolean {

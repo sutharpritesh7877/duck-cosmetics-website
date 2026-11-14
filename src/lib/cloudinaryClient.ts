@@ -13,8 +13,19 @@ export interface CloudinaryUploadResponse {
 }
 
 export function getCloudinaryConfig() {
-  const cloudName = (import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || "").trim();
-  const uploadPreset = (import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || "").trim();
+  const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env || {} : {};
+  const cloudName = (
+    process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ||
+    process.env.VITE_CLOUDINARY_CLOUD_NAME ||
+    metaEnv.VITE_CLOUDINARY_CLOUD_NAME ||
+    ""
+  ).trim();
+  const uploadPreset = (
+    process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET ||
+    process.env.VITE_CLOUDINARY_UPLOAD_PRESET ||
+    metaEnv.VITE_CLOUDINARY_UPLOAD_PRESET ||
+    ""
+  ).trim();
   const configured = Boolean(
     cloudName &&
     uploadPreset &&

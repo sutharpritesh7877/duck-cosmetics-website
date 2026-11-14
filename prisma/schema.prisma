@@ -1,0 +1,250 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  USER
+}
+
+enum ProductStatus {
+  DRAFT
+  COMING_SOON
+  LIVE
+}
+
+enum OrderStatus {
+  PENDING
+  SHIPPED
+  DELIVERED
+  RETURNED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String?
+  phoneNumber  String?
+  role         Role       @default(USER)
+  orders       Order[]
+  addresses    Address[]
+  wishlists    Wishlist[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Category {
+  id                String     @id @default(cuid())
+  name              String
+  slug              String     @unique
+  shortDescription  String?
+  bannerImageUrl    String?
+  subCategoriesList String[]   @default([])
+  displayOrder      Int        @default(0)
+  parentCategoryId  String?
+  parentCategory    Category?  @relation("SubCategories", fields: [parentCategoryId], references: [id])
+  subCategories     Category[] @relation("SubCategories")
+  products          Product[]
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+}
+
+model Product {
+  id                String        @id @default(cuid())
+  title             String
+  description       String
+  price             Decimal       @default(0.00)
+  mrp               Decimal       @default(0.00)
+  sellingPrice      Decimal       @default(0.00)
+  costPrice         Decimal       @default(0.00)
+  stock             Int           @default(50)
+  gst               Decimal       @default(18.0)
+  hsn               String        @default("330499")
+  imageUrl          String
+  backImageUrl      String?
+  textureImageUrl   String?
+  lifestyleImageUrl String?
+  categoryId        String
+  category          Category      @relation(fields: [categoryId], references: [id])
+  status            ProductStatus @default(COMING_SOON)
+  isFeatured        Boolean       @default(false)
+  isBestSeller      Boolean       @default(false)
+  ingredients       String?
+  directions        String?
+  warnings          String?
+  manufacturer      String?
+  rating            Decimal?      @default(4.9)
+  reviewCount       Int?          @default(120)
+  reviews           Review[]
+  wishlists         Wishlist[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  orderNumber   String      @unique
+  customerName  String
+  phone         String
+  email         String?
+  address       String
+  city          String?
+  pincode       String?
+  totalAmount   Decimal     @default(0.00)
+  status        OrderStatus @default(PENDING)
+  paymentMethod String      @default("COD")
+  isManual      Boolean     @default(false)
+  notes         String?
+  itemsJson     String      @default("[]") @db.Text
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+enum AddressType {
+  SHIPPING
+  BILLING
+}
+
+model Address {
+  id        String      @id @default(cuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      AddressType @default(SHIPPING)
+  isDefault Boolean     @default(false)
+  name      String
+  phone     String
+  street1   String
+  street2   String?
+  city      String
+  state     String
+  zip       String
+  country   String      @default("India")
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model Wishlist {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+model Review {
+  id           String       @id @default(cuid())
+  customerName String
+  rating       Int          @default(5)
+  comment      String       @db.Text
+  productId    String?
+  product      Product?     @relation(fields: [productId], references: [id])
+  status       ReviewStatus @default(APPROVED)
+  adminReply   String?
+  verified     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model Coupon {
+  id              String   @id @default(cuid())
+  code            String   @unique
+  discountPercent Int      @default(15)
+  minOrderAmount  Decimal  @default(0.00)
+  freeGift        String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Waitlist {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  source    String   @default("Hero CTA")
+}
+
+model SiteSettings {
+  id                  String   @id @default("default")
+  heroHeadline        String   @default("REDEFINE YOUR GLOW")
+  heroSubheadline     String   @default("Unveiling premium, playful & sophisticated beauty. Consciously formulated botanicals engineered for radiant, effortless luminescence.")
+  heroImageUrl        String   @default("https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=1200&auto=format&fit=crop")
+  announcementBarText String   @default("Free Shipping Over ₹800 | 100% Cruelty-Free")
+  footerTagline       String   @default("Duck Cosmetics — Redefining high-fashion beauty with conscious botanicals.")
+  trustBadge1         String   @default("100% CRUELTY-FREE")
+  trustBadge2         String   @default("DERMATOLOGICALLY TESTED")
+  maisonHeadline      String   @default("Sophisticated Science, Playful Radiance.")
+  maisonSubheadline   String   @default("Duck Cosmetics was founded on a singular obsession: to dismantle the boundary between uncompromising clinical dermatology and haute couture pleasure.")
+  buttonText          String   @default("JOIN THE WAITLIST")
+  updatedAt           DateTime @updatedAt
+}
+
+model ContactSettings {
+  id         String   @id @default("default")
+  phone1     String   @default("+91 79 4001 8899")
+  phone2     String   @default("+91 98250 12345")
+  phone3     String   @default("+91 99099 87654")
+  email      String   @default("concierge@duckcosmetics.com")
+  address    String   @default("Duck Cosmetics Atelier, Level 4, Signature Towers, SG Highway, Bodakdev, Ahmedabad, Gujarat 380054, India")
+  bottomText String   @default("Duck Cosmetics — Care for Every Little Moment.")
+  updatedAt  DateTime @updatedAt
+}
+
+model PageContent {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+}
+
+model ConciergeQA {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String   @db.Text
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MegaMenuPromo {
+  id                  String   @id @default("default")
+  badgeText           String   @default("PRE-LAUNCH VIP")
+  title               String   @default("Baby Care & Pure Botanicals")
+  description         String   @default("Pediatrician-tested hypoallergenic formulas with cold-pressed almond and organic calendula.")
+  posterImageUrl      String   @default("")
+  primaryButtonText   String   @default("EXPLORE BABY CARE")
+  primaryButtonLink   String   @default("/shop/baby-care")
+  secondaryButtonText String   @default("JOIN DROP WAITLIST")
+  secondaryButtonLink String   @default("waitlist-modal")
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
