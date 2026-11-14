@@ -18,13 +18,13 @@ export function getCloudinaryConfig() {
     process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ||
     process.env.VITE_CLOUDINARY_CLOUD_NAME ||
     metaEnv.VITE_CLOUDINARY_CLOUD_NAME ||
-    ""
+    "fddgundt"
   ).trim();
   const uploadPreset = (
     process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET ||
     process.env.VITE_CLOUDINARY_UPLOAD_PRESET ||
     metaEnv.VITE_CLOUDINARY_UPLOAD_PRESET ||
-    ""
+    "duck_unsigned_preset"
   ).trim();
   const configured = Boolean(
     cloudName &&
