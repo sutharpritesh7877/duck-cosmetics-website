@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { dbService } from "@/lib/db";
 import { sanitizeText } from "@/lib/validation";
 
@@ -30,6 +31,17 @@ export async function PUT(request: Request) {
       ...(address ? { address: sanitizeText(address) } : {}),
       ...(bottomText ? { bottomText: sanitizeText(bottomText) } : {}),
     });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/contact");
+      revalidatePath("/admin/contact");
+      revalidatePath("/about");
+      revalidatePath("/faq");
+      revalidatePath("/shop");
+    } catch (revalErr) {
+      console.warn("[Contact Settings PUT] revalidatePath warning:", revalErr);
+    }
 
     return NextResponse.json({ success: true, contact: updated });
   } catch (error: any) {

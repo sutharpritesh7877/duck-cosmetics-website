@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowRight, Sparkles, Check } from "lucide-react";
+import { ArrowRight, Sparkles, Check, Phone, MapPin } from "lucide-react";
 import { z } from "zod";
 import { useToast } from "../ui/Toast";
 import { DuckLogo } from "../ui/DuckLogo";
+import { ContactSettingsData } from "@/lib/db";
 
 // Custom Instagram SVG Icon
 function InstagramIcon({ className }: { className?: string }) {
@@ -46,13 +47,30 @@ const newsletterSchema = z.string().trim().email("Please enter a valid email add
 interface FooterProps {
   onOpenWaitlist?: () => void;
   tagline?: string;
+  contact?: ContactSettingsData;
 }
 
-export function Footer({ onOpenWaitlist, tagline }: FooterProps) {
+export function Footer({ onOpenWaitlist, tagline, contact: initialContact }: FooterProps) {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
+  const [contactData, setContactData] = useState<ContactSettingsData | undefined>(initialContact);
   const { error: toastError, success: toastSuccess } = useToast();
+
+  useEffect(() => {
+    if (initialContact) {
+      setContactData(initialContact);
+      return;
+    }
+    fetch("/api/contact-settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && data.contact) {
+          setContactData(data.contact);
+        }
+      })
+      .catch(() => {});
+  }, [initialContact]);
 
   const handleSubscribe = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -238,15 +256,28 @@ export function Footer({ onOpenWaitlist, tagline }: FooterProps) {
               </form>
             )}
 
-            <div className="pt-2 text-xs font-sans text-text-gray space-y-1.5">
+            <div className="pt-2 text-xs font-sans text-text-gray space-y-2">
               <Link href="/track-order" className="hover:text-primary transition duration-200 inline-flex items-center gap-1 font-semibold text-primary">
                 <span>Track Order Journey</span>
                 <ArrowRight className="w-3 h-3" />
               </Link>
               <Link href="/contact" className="hover:text-primary transition duration-200 block">
-                Customer Care: concierge@duckcosmetics.com
+                <span className="font-semibold text-text-dark">Customer Care: </span>
+                <span>{contactData?.email || "concierge@duckcosmetics.com"}</span>
               </Link>
-              <p className="text-text-muted">Complimentary Global Shipping & Returns</p>
+              {contactData?.phone1 && (
+                <a href={`tel:${contactData.phone1}`} className="hover:text-primary transition duration-200 block">
+                  <span className="font-semibold text-text-dark">Concierge Line: </span>
+                  <span>{contactData.phone1}</span>
+                </a>
+              )}
+              {contactData?.address && (
+                <div className="pt-1 text-[11px] text-text-muted leading-relaxed">
+                  <span className="font-semibold text-text-dark/80 block uppercase tracking-wider text-[10px]">Maison & Research Atelier:</span>
+                  <span>{contactData.address}</span>
+                </div>
+              )}
+              <p className="text-text-muted text-[11px] pt-0.5">Complimentary Global Shipping & Returns</p>
             </div>
           </div>
         </div>

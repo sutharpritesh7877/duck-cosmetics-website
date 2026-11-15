@@ -5,6 +5,8 @@ import bcrypt from "bcryptjs";
 import {
   fetchSiteSettingsFromFirestore,
   saveSiteSettingsToFirestore,
+  fetchContactSettingsFromFirestore,
+  saveContactSettingsToFirestore,
   fetchAdminProductsFromFirestore,
   saveProductToFirestore,
   deleteProductFromFirestore,
@@ -1383,7 +1385,11 @@ export const dbService = {
   async getContactSettings(): Promise<ContactSettingsData> {
     if (await checkPrisma()) {
       try {
-        const c = await prisma.contactSettings.findUnique({ where: { id: "default" } });
+        const c =
+          (await prisma.contactSettings.findFirst({
+            orderBy: { updatedAt: "desc" },
+          })) ||
+          (await prisma.contactSettings.findUnique({ where: { id: "default" } }));
         if (c) {
           return {
             id: c.id,
@@ -1400,11 +1406,27 @@ export const dbService = {
         console.warn("Prisma getContactSettings fallback:", e);
       }
     }
+
+    // Cloud Firestore Fallback (Real-time cloud sync across Vercel lambdas)
+    try {
+      const fb = await fetchContactSettingsFromFirestore();
+      if (fb && (fb.address || fb.email || fb.phone1)) {
+        return {
+          ...DEFAULT_CONTACT_SETTINGS,
+          ...fb,
+          updatedAt: fb.updatedAt || new Date().toISOString(),
+        };
+      }
+    } catch (fbErr) {
+      console.warn("Firestore getContactSettings fallback:", fbErr);
+    }
+
     const store = getLocalStore();
     return store.contactSettings || { ...DEFAULT_CONTACT_SETTINGS };
   },
 
   async updateContactSettings(data: Partial<ContactSettingsData>): Promise<ContactSettingsData> {
+    let result: ContactSettingsData | null = null;
     if (await checkPrisma()) {
       try {
         const updated = await prisma.contactSettings.upsert({
@@ -1412,7 +1434,7 @@ export const dbService = {
           create: { ...DEFAULT_CONTACT_SETTINGS, ...data },
           update: data,
         });
-        return {
+        result = {
           id: updated.id,
           phone1: updated.phone1,
           phone2: updated.phone2,
@@ -1426,6 +1448,14 @@ export const dbService = {
         console.warn("Prisma updateContactSettings fallback:", e);
       }
     }
+
+    // Dual-sync to Cloud Firestore
+    try {
+      await saveContactSettingsToFirestore((result || { ...DEFAULT_CONTACT_SETTINGS, ...data }));
+    } catch (fbErr) {
+      console.warn("Firestore saveContactSettings fallback:", fbErr);
+    }
+
     const store = getLocalStore();
     store.contactSettings = {
       ...store.contactSettings,
@@ -1433,7 +1463,7 @@ export const dbService = {
       updatedAt: new Date().toISOString(),
     };
     saveLocalStore(store);
-    return store.contactSettings;
+    return result || store.contactSettings;
   },
 
   // --- Pages CMS ---

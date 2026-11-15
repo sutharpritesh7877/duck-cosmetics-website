@@ -12,17 +12,19 @@ import { OurStorySection } from "@/components/home/OurStorySection";
 import { ReviewsSection } from "@/components/home/ReviewsSection";
 import { Footer } from "@/components/layout/Footer";
 import { WaitlistModal } from "@/components/ui/WaitlistModal";
-import { SiteSettingsData, ProductData } from "@/lib/db";
+import { SiteSettingsData, ProductData, ContactSettingsData } from "@/lib/db";
 import { useToast } from "@/components/ui/Toast";
 
 interface DuckStoreClientProps {
   initialSettings: SiteSettingsData;
   initialProducts: ProductData[];
+  initialContact?: ContactSettingsData;
 }
 
 export function DuckStoreClient({
   initialSettings,
   initialProducts,
+  initialContact,
 }: DuckStoreClientProps) {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [waitlistProductTitle, setWaitlistProductTitle] = useState<string | undefined>(undefined);
@@ -144,8 +146,12 @@ export function DuckStoreClient({
         <OurStorySection onOpenWaitlist={handleOpenGeneralWaitlist} />
       </main>
 
-      {/* 6. Footer (Deep purple background, official white logo, 4 columns, social links, newsletter) */}
-      <Footer onOpenWaitlist={handleOpenGeneralWaitlist} tagline={initialSettings?.footerTagline} />
+      {/* 6. Footer (Deep purple background, official white logo, 4 columns, social links, newsletter, dynamic contact) */}
+      <Footer
+        onOpenWaitlist={handleOpenGeneralWaitlist}
+        tagline={initialSettings?.footerTagline}
+        contact={initialContact}
+      />
 
       {/* 7. Product Formula Dossier / Detail Modal (Ingredients, Ritual, Warnings, Manufacturer, Ratings) */}
       <ProductDetailModal

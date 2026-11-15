@@ -6,15 +6,17 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function HomePage() {
-  const [settings, productsResult] = await Promise.all([
+  const [settings, productsResult, contact] = await Promise.all([
     dbService.getSiteSettings(),
     dbService.getProducts({ limit: 40 }),
+    dbService.getContactSettings(),
   ]);
 
   return (
     <DuckStoreClient
       initialSettings={settings}
       initialProducts={productsResult.products}
+      initialContact={contact}
     />
   );
 }

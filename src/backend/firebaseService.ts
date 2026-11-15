@@ -235,6 +235,34 @@ export async function saveSiteSettingsToFirestore(settings: StoreSettings): Prom
   await setDoc(docRef, payload, { merge: true });
 }
 
+export async function fetchContactSettingsFromFirestore(): Promise<any | null> {
+  if (!isFirebaseConfigured() || !firestoreDb) return null;
+
+  try {
+    const docRef = doc(firestoreDb, "contact_settings", "default");
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
+    return null;
+  } catch (err: any) {
+    console.error("[Firestore] Error loading contact settings:", err.message);
+    return null;
+  }
+}
+
+export async function saveContactSettingsToFirestore(settings: any): Promise<void> {
+  if (!isFirebaseConfigured() || !firestoreDb) return;
+
+  try {
+    const docRef = doc(firestoreDb, "contact_settings", "default");
+    const payload = cleanForFirestore({ ...settings, updatedAt: new Date().toISOString() });
+    await setDoc(docRef, payload, { merge: true });
+  } catch (err: any) {
+    console.error("[Firestore] Error saving contact settings:", err.message);
+  }
+}
+
 // ==============================================================================
 // 4. ORDERS & PROMOTIONS (FIRESTORE)
 // ==============================================================================

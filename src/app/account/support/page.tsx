@@ -27,8 +27,26 @@ export default function AccountSupportPage() {
     message: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [contact, setContact] = useState<{ phone1?: string; email?: string; address?: string }>({
+    phone1: "+91 79 4001 8899",
+    email: "concierge@duckcosmetics.com",
+    address: "Duck Cosmetics Private Limited · Level 4, Signature Towers, SG Highway, Bodakdev, Ahmedabad, Gujarat 380054, India",
+  });
 
   useEffect(() => {
+    fetch("/api/contact-settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.success && data?.contact) {
+          setContact({
+            phone1: data.contact.phone1,
+            email: data.contact.email,
+            address: data.contact.address,
+          });
+        }
+      })
+      .catch(() => {});
+
     try {
       const stored = localStorage.getItem("duck_customer");
       if (stored) {
@@ -113,7 +131,7 @@ export default function AccountSupportPage() {
 
         {/* Email Atelier */}
         <a
-          href="mailto:crm@duckcosmetics.in?subject=VIP%20Client%20Inquiry%20from%20Account%20Dashboard"
+          href={`mailto:${contact.email || "concierge@duckcosmetics.com"}?subject=VIP%20Client%20Inquiry%20from%20Account%20Dashboard`}
           className="group p-5 rounded-3xl bg-[#F8F6FA] border border-lilac-border hover:border-primary/40 hover:bg-white hover:shadow-md transition duration-200 flex flex-col justify-between"
         >
           <div>
@@ -124,7 +142,7 @@ export default function AccountSupportPage() {
               Email Concierge
             </h4>
             <p className="text-xs text-text-gray mt-1 leading-relaxed">
-              crm@duckcosmetics.in
+              {contact.email || "concierge@duckcosmetics.com"}
             </p>
           </div>
           <div className="mt-4 pt-3 border-t border-lilac-border/60 flex items-center gap-1.5 text-xs font-semibold text-primary uppercase tracking-wider">
@@ -135,7 +153,7 @@ export default function AccountSupportPage() {
 
         {/* Telephone Concierge */}
         <a
-          href="tel:+917940018899"
+          href={`tel:${contact.phone1 || "+917940018899"}`}
           className="group p-5 rounded-3xl bg-[#F8F6FA] border border-lilac-border hover:border-amber-500/40 hover:bg-white hover:shadow-md transition duration-200 flex flex-col justify-between"
         >
           <div>
@@ -146,7 +164,7 @@ export default function AccountSupportPage() {
               Telephone Atelier
             </h4>
             <p className="text-xs text-text-gray mt-1 leading-relaxed">
-              +91 79 4001 8899
+              {contact.phone1 || "+91 79 4001 8899"}
             </p>
           </div>
           <div className="mt-4 pt-3 border-t border-lilac-border/60 flex items-center gap-1.5 text-xs font-semibold text-amber-700 uppercase tracking-wider">
@@ -251,7 +269,7 @@ export default function AccountSupportPage() {
           <MapPin className="w-4 h-4 text-primary shrink-0 mt-0.5" />
           <div>
             <span className="font-semibold text-text-dark block">Atelier Physical Headquarters</span>
-            <span>Duck Cosmetics Private Limited · Level 4, Signature Towers, SG Highway, Bodakdev, Ahmedabad, Gujarat 380054, India</span>
+            <span>{contact.address || "Duck Cosmetics Private Limited · Level 4, Signature Towers, SG Highway, Bodakdev, Ahmedabad, Gujarat 380054, India"}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">

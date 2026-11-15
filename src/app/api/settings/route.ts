@@ -22,6 +22,21 @@ export async function PUT(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
 
+    // If payload contains contact details / address updates, synchronize to contactSettings
+    if (body.address || body.email || body.phone1 || body.supportEmail || body.supportPhone1) {
+      try {
+        await dbService.updateContactSettings({
+          ...(body.address ? { address: sanitizeText(body.address) } : {}),
+          ...(body.email || body.supportEmail ? { email: sanitizeText(body.email || body.supportEmail) } : {}),
+          ...(body.phone1 || body.supportPhone1 ? { phone1: sanitizeText(body.phone1 || body.supportPhone1) } : {}),
+          ...(body.phone2 || body.supportPhone2 ? { phone2: sanitizeText(body.phone2 || body.supportPhone2) } : {}),
+          ...(body.phone3 || body.supportPhone3 ? { phone3: sanitizeText(body.phone3 || body.supportPhone3) } : {}),
+        });
+      } catch (cErr) {
+        console.warn("[Settings PUT] updateContactSettings warning:", cErr);
+      }
+    }
+
     // If payload contains paymentGateways, shippingZones, or globalRouting directly
     if (body.paymentGateways || body.shippingZones || body.globalRouting) {
       if (body.paymentGateways) {
@@ -74,7 +89,10 @@ export async function PUT(request: Request) {
 
     try {
       revalidatePath("/");
+      revalidatePath("/contact");
       revalidatePath("/admin/cms");
+      revalidatePath("/admin/contact");
+      revalidatePath("/admin/settings");
       revalidatePath("/shop");
     } catch (revalErr) {
       console.warn("[Settings PUT] revalidatePath warning:", revalErr);
