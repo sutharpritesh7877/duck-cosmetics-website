@@ -4,6 +4,7 @@ import path from "path";
 import { uploadToFirebaseStorage, isFirebaseConfigured } from "@/lib/firebase";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,17 +58,19 @@ export async function POST(req: NextRequest) {
       // 1. Primary Cloud Provider: Cloudinary CDN (Instant, Unsigned, Permanent)
       if (cloudName && uploadPreset) {
         try {
-          const cldFormData = new FormData();
-          const fileBlob = new Blob([buffer], { type: mimeType });
-          cldFormData.append("file", fileBlob, file.name);
-          cldFormData.append("upload_preset", uploadPreset);
-          cldFormData.append("folder", "duck-cosmetics-products");
-
+          const base64Data = `data:${mimeType};base64,${buffer.toString("base64")}`;
           const cldRes = await fetch(
             `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
             {
               method: "POST",
-              body: cldFormData,
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                file: base64Data,
+                upload_preset: uploadPreset,
+                folder: "duck-cosmetics-products",
+              }),
             }
           );
 

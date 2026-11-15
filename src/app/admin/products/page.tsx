@@ -24,6 +24,7 @@ import {
   Star,
 } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
+import { uploadMultipleImagesResilient } from "@/lib/resilientUpload";
 
 interface Category {
   id: string;
@@ -121,26 +122,18 @@ export default function AdminProductsPage() {
 
     setUploadingPhoto(true);
     try {
-      const data = new FormData();
-      for (let i = 0; i < files.length; i++) {
-        data.append("files", files[i]);
-      }
-
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: data,
-      });
-      const result = await res.json();
-      if (result.success && Array.isArray(result.urls)) {
-        const updated = [...photos, ...result.urls];
+      const uploadedUrls = await uploadMultipleImagesResilient(files, "duck_products");
+      if (uploadedUrls && uploadedUrls.length > 0) {
+        const updated = [...photos, ...uploadedUrls];
         setPhotos(updated);
         syncPhotosToForm(updated);
-        toastSuccess(`Successfully uploaded ${result.urls.length} product photo(s)!`);
+        toastSuccess(`Successfully uploaded ${uploadedUrls.length} product photo(s)!`);
       } else {
-        toastError(result.error || "Failed to upload photo.");
+        toastError("Could not upload photos. Please try again.");
       }
-    } catch {
-      toastError("Network error while uploading photo.");
+    } catch (err: any) {
+      console.error("Photo upload error:", err);
+      toastError(err?.message || "Error while uploading product photos.");
     } finally {
       setUploadingPhoto(false);
       e.target.value = "";

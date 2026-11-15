@@ -2,8 +2,9 @@
 
 import React, { useState, useRef } from "react";
 import Image from "next/image";
-import { Upload, X, Check, Image as ImageIcon, RefreshCw, Link as LinkIcon } from "lucide-react";
+import { Upload, X, Check, Image as ImageIcon, RefreshCw, Link as LinkIcon, Cloud } from "lucide-react";
 import { useToast } from "@/components/ui/Toast";
+import { uploadSingleImageResilient } from "@/lib/resilientUpload";
 
 interface ImageUploadDropzoneProps {
   value: string;
@@ -58,7 +59,11 @@ export function ImageUploadDropzone({
   };
 
   const processUpload = async (file: File) => {
-    if (!file.type.startsWith("image/")) {
+    const isImage =
+      (file.type && file.type.startsWith("image/")) ||
+      /\.(jpg|jpeg|png|webp|gif|svg|avif|bmp|ico)$/i.test(file.name);
+
+    if (!isImage) {
       toastError("Please select a valid image file (JPG, PNG, WebP).");
       return;
     }
@@ -71,24 +76,16 @@ export function ImageUploadDropzone({
     setIsUploading(true);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (data.success && data.url) {
-        onChange(data.url);
+      const result = await uploadSingleImageResilient(file, "duck_cms");
+      if (result && result.url) {
+        onChange(result.url);
         toastSuccess("Image uploaded successfully.");
       } else {
-        toastError(data.error || "Upload failed. Please try again.");
+        toastError("Upload could not complete. Please try again.");
       }
     } catch (err: any) {
       console.error("Upload error:", err);
-      toastError("Network error during image upload.");
+      toastError(err?.message || "Error during image upload. Please try again.");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
