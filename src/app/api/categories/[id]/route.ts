@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { dbService } from "@/lib/db";
 import { sanitizeText } from "@/lib/validation";
 
@@ -37,6 +38,14 @@ export async function PUT(
       return NextResponse.json({ success: false, error: "Category not found" }, { status: 404 });
     }
 
+    try {
+      revalidatePath("/");
+      revalidatePath("/shop");
+      revalidatePath("/admin/categories");
+    } catch (revalErr) {
+      console.warn("[Category PUT] revalidatePath warning:", revalErr);
+    }
+
     return NextResponse.json({ success: true, category: updated });
   } catch (error: any) {
     console.error("Category PUT error:", error);
@@ -56,6 +65,15 @@ export async function DELETE(
     if (!ok) {
       return NextResponse.json({ success: false, error: "Category not found" }, { status: 404 });
     }
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/shop");
+      revalidatePath("/admin/categories");
+    } catch (revalErr) {
+      console.warn("[Category DELETE] revalidatePath warning:", revalErr);
+    }
+
     return NextResponse.json({ success: true, message: "Category deleted successfully" });
   } catch (error: any) {
     console.error("Category DELETE error:", error);

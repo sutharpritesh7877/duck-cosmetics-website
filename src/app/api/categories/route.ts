@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { dbService } from "@/lib/db";
 import { sanitizeText } from "@/lib/validation";
 
@@ -49,6 +50,14 @@ export async function POST(request: Request) {
       displayOrder: body.displayOrder !== undefined ? parseInt(body.displayOrder, 10) : 99,
       parentCategoryId: body.parentCategoryId || null,
     });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/shop");
+      revalidatePath("/admin/categories");
+    } catch (revalErr) {
+      console.warn("[Categories POST] revalidatePath warning:", revalErr);
+    }
 
     return NextResponse.json({ success: true, category: created }, { status: 201 });
   } catch (error: any) {

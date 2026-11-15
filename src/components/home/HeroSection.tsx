@@ -38,9 +38,13 @@ const itemVariants: Variants = {
 export function HeroSection({
   headline = "REDEFINE YOUR GLOW",
   subheadline = "Unveiling premium, playful & sophisticated beauty. Consciously formulated botanicals engineered for radiant, effortless luminescence.",
-  imageUrl = "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=1200&auto=format&fit=crop",
+  imageUrl,
   onOpenWaitlist,
 }: HeroSectionProps) {
+  const displayImageUrl =
+    imageUrl && imageUrl.trim()
+      ? imageUrl.trim()
+      : "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?q=80&w=1200&auto=format&fit=crop";
   return (
     <section className="relative w-full overflow-hidden bg-white py-16 sm:py-20 lg:py-24 border-b border-gray-100">
       {/* Subtle background ambient gradients */}
@@ -153,7 +157,7 @@ export function HeroSection({
             >
               <div className="relative aspect-[4/5] sm:aspect-[4/5] w-full rounded-2xl overflow-hidden bg-lilac-subtle">
                 <Image
-                  src={imageUrl}
+                  src={displayImageUrl}
                   alt="Duck Cosmetics Model showcasing radiant, glowing skin with luminous botanicals"
                   fill
                   priority

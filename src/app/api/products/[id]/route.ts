@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { dbService, ProductStatus } from "@/lib/db";
 import { sanitizeText } from "@/lib/validation";
 
@@ -58,6 +59,17 @@ export async function PUT(
       return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
     }
 
+    try {
+      revalidatePath("/");
+      revalidatePath("/shop");
+      revalidatePath("/best-sellers");
+      revalidatePath("/new-arrivals");
+      revalidatePath(`/product/${params.id}`);
+      revalidatePath("/admin/products");
+    } catch (revalErr) {
+      console.warn("[Product PUT] revalidatePath warning:", revalErr);
+    }
+
     return NextResponse.json({ success: true, product: updated });
   } catch (error: any) {
     console.error("Product PUT error:", error);
@@ -74,6 +86,18 @@ export async function DELETE(
     if (!deleted) {
       return NextResponse.json({ success: false, error: "Product not found" }, { status: 404 });
     }
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/shop");
+      revalidatePath("/best-sellers");
+      revalidatePath("/new-arrivals");
+      revalidatePath(`/product/${params.id}`);
+      revalidatePath("/admin/products");
+    } catch (revalErr) {
+      console.warn("[Product DELETE] revalidatePath warning:", revalErr);
+    }
+
     return NextResponse.json({ success: true, message: "Product deleted successfully" });
   } catch (error: any) {
     console.error("Product DELETE error:", error);

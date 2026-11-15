@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { dbService } from "@/lib/db";
 import { siteSettingsSchema, sanitizeText } from "@/lib/validation";
 
@@ -70,6 +71,14 @@ export async function PUT(request: Request) {
       ...(maisonHeadline ? { maisonHeadline: sanitizeText(maisonHeadline) } : {}),
       ...(maisonSubheadline ? { maisonSubheadline: sanitizeText(maisonSubheadline) } : {}),
     });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/cms");
+      revalidatePath("/shop");
+    } catch (revalErr) {
+      console.warn("[Settings PUT] revalidatePath warning:", revalErr);
+    }
 
     return NextResponse.json({
       success: true,

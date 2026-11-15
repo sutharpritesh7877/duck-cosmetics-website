@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { dbService } from "@/lib/db";
 import { sanitizeText } from "@/lib/validation";
 
@@ -33,6 +34,12 @@ export async function PUT(request: Request) {
     if (body.isActive !== undefined) updateData.isActive = Boolean(body.isActive);
 
     const updated = await dbService.updateMegaMenuPromo(updateData);
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/mega-menu");
+    } catch (revalErr) {
+      console.warn("[MegaMenuPromo PUT] revalidatePath warning:", revalErr);
+    }
     return NextResponse.json({
       success: true,
       message: "Mega-Menu Promo updated successfully",

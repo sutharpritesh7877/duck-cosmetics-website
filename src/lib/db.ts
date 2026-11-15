@@ -2,6 +2,13 @@ import fs from "fs";
 import path from "path";
 import prisma from "./prisma";
 import bcrypt from "bcryptjs";
+import {
+  fetchSiteSettingsFromFirestore,
+  saveSiteSettingsToFirestore,
+  fetchAdminProductsFromFirestore,
+  saveProductToFirestore,
+  deleteProductFromFirestore,
+} from "../backend/firebaseService";
 
 export type ProductStatus = "DRAFT" | "COMING_SOON" | "LIVE";
 export type OrderStatus = "PENDING" | "SHIPPED" | "DELIVERED" | "RETURNED";
@@ -1283,7 +1290,11 @@ export const dbService = {
   async getSiteSettings(): Promise<SiteSettingsData> {
     if (await checkPrisma()) {
       try {
-        const s = await prisma.siteSettings.findUnique({ where: { id: "default" } });
+        const s =
+          (await prisma.siteSettings.findFirst({
+            orderBy: { updatedAt: "desc" },
+          })) ||
+          (await prisma.siteSettings.findUnique({ where: { id: "default" } }));
         if (s) {
           return {
             id: s.id,
@@ -1304,11 +1315,27 @@ export const dbService = {
         console.warn("Prisma getSiteSettings fallback:", e);
       }
     }
+
+    // Cloud Firestore Fallback (Preserves admin settings across Vercel Lambdas)
+    try {
+      const fb = await fetchSiteSettingsFromFirestore();
+      if (fb && (fb.heroImageUrl || fb.heroHeadline)) {
+        return {
+          ...DEFAULT_SETTINGS,
+          ...(fb as any),
+          updatedAt: (fb as any).updatedAt || new Date().toISOString(),
+        };
+      }
+    } catch (fbErr) {
+      console.warn("Firestore getSiteSettings fallback:", fbErr);
+    }
+
     const store = getLocalStore();
     return store.siteSettings || { ...DEFAULT_SETTINGS };
   },
 
   async updateSiteSettings(data: Partial<SiteSettingsData>): Promise<SiteSettingsData> {
+    let result: SiteSettingsData | null = null;
     if (await checkPrisma()) {
       try {
         const updated = await prisma.siteSettings.upsert({
@@ -1316,7 +1343,7 @@ export const dbService = {
           create: { ...DEFAULT_SETTINGS, ...data },
           update: data as any,
         });
-        return {
+        result = {
           id: updated.id,
           heroHeadline: updated.heroHeadline,
           heroSubheadline: updated.heroSubheadline,
@@ -1334,6 +1361,14 @@ export const dbService = {
         console.warn("Prisma updateSiteSettings fallback:", e);
       }
     }
+
+    // Dual-sync to Cloud Firestore
+    try {
+      await saveSiteSettingsToFirestore((result || { ...DEFAULT_SETTINGS, ...data }) as any);
+    } catch (fbErr) {
+      console.warn("Firestore saveSiteSettings fallback:", fbErr);
+    }
+
     const store = getLocalStore();
     store.siteSettings = {
       ...store.siteSettings,
@@ -1341,7 +1376,7 @@ export const dbService = {
       updatedAt: new Date().toISOString(),
     };
     saveLocalStore(store);
-    return store.siteSettings;
+    return result || store.siteSettings;
   },
 
   // --- Contact Settings ---
@@ -1930,6 +1965,148 @@ export const dbService = {
       limit = 50,
     } = options || {};
 
+    // 1. Primary DB Source: Prisma ORM (Live DB queries on PostgreSQL / Supabase)
+    if (await checkPrisma()) {
+      try {
+        const whereClause: any = {};
+        if (featuredOnly) whereClause.isFeatured = true;
+        if (bestSellerOnly || isBestSeller) whereClause.isBestSeller = true;
+        if (status) {
+          whereClause.status = status;
+        }
+        if (categoryId && categoryId !== "ALL" && categoryId !== "all") {
+          whereClause.categoryId = categoryId;
+        }
+        if (search && search.trim()) {
+          whereClause.OR = [
+            { title: { contains: search.trim(), mode: "insensitive" } },
+            { description: { contains: search.trim(), mode: "insensitive" } },
+          ];
+        }
+
+        const orderByClause: any =
+          sort === "price-asc"
+            ? { sellingPrice: "asc" }
+            : sort === "price-desc"
+            ? { sellingPrice: "desc" }
+            : sort === "newest"
+            ? { createdAt: "desc" }
+            : { createdAt: "desc" };
+
+        const [prismaProducts, totalCount] = await Promise.all([
+          prisma.product.findMany({
+            where: whereClause,
+            include: { category: true },
+            orderBy: orderByClause,
+            skip: (page - 1) * limit,
+            take: limit,
+          }),
+          prisma.product.count({ where: whereClause }),
+        ]);
+
+        if (prismaProducts && prismaProducts.length > 0) {
+          return {
+            products: prismaProducts.map((p) => ({
+              id: p.id,
+              title: p.title,
+              description: p.description,
+              price: Number(p.price || p.sellingPrice),
+              mrp: Number(p.mrp || p.price),
+              sellingPrice: Number(p.sellingPrice || p.price),
+              costPrice: Number(p.costPrice || 0),
+              stock: p.stock ?? 50,
+              gst: Number(p.gst ?? 18),
+              hsn: p.hsn || "330499",
+              imageUrl: p.imageUrl,
+              backImageUrl: p.backImageUrl || undefined,
+              textureImageUrl: p.textureImageUrl || undefined,
+              lifestyleImageUrl: p.lifestyleImageUrl || undefined,
+              galleryImages: [p.imageUrl, p.backImageUrl, p.textureImageUrl, p.lifestyleImageUrl].filter(Boolean) as string[],
+              categoryId: p.categoryId,
+              categoryName: p.category?.name || "General",
+              category: p.category
+                ? {
+                    id: p.category.id,
+                    name: p.category.name,
+                    slug: p.category.slug,
+                  }
+                : undefined,
+              status: p.status as ProductStatus,
+              isFeatured: p.isFeatured,
+              isBestSeller: Boolean((p as any).isBestSeller),
+              ingredients: p.ingredients || undefined,
+              directions: p.directions || undefined,
+              warnings: p.warnings || undefined,
+              manufacturer: p.manufacturer || undefined,
+              rating: p.rating ? Number(p.rating) : 4.9,
+              reviewCount: p.reviewCount ?? 120,
+              createdAt: p.createdAt.toISOString(),
+              updatedAt: p.updatedAt.toISOString(),
+            })),
+            total: totalCount,
+          };
+        }
+      } catch (prismaErr) {
+        console.warn("Prisma getProducts query error / fallback:", prismaErr);
+      }
+    }
+
+    // 2. Secondary Cloud Source: Google Cloud Firestore (Dual-sync on Vercel)
+    try {
+      const fbProducts = await fetchAdminProductsFromFirestore();
+      if (fbProducts && fbProducts.length > 0) {
+        let list: ProductData[] = fbProducts.map((p: any) => ({
+          id: p.id,
+          title: p.title,
+          description: p.description || "",
+          price: Number(p.price || p.sellingPrice || 0),
+          mrp: Number(p.mrp || p.price || 0),
+          sellingPrice: Number(p.sellingPrice || p.price || 0),
+          costPrice: Number(p.costPrice || 0),
+          stock: p.stock ?? 50,
+          gst: Number(p.gst ?? 18),
+          hsn: p.hsn || "330499",
+          imageUrl: p.imageUrl || p.image || "",
+          backImageUrl: p.backImageUrl,
+          textureImageUrl: p.textureImageUrl,
+          lifestyleImageUrl: p.lifestyleImageUrl,
+          galleryImages: Array.isArray(p.galleryImages) ? p.galleryImages : [p.imageUrl].filter(Boolean),
+          categoryId: p.categoryId || (p.category?.id) || "",
+          categoryName: p.category?.name || p.categoryName || "General",
+          category: p.category,
+          status: (p.status || "LIVE") as ProductStatus,
+          isFeatured: Boolean(p.isFeatured),
+          isBestSeller: Boolean(p.isBestSeller),
+          ingredients: p.ingredients,
+          directions: p.directions,
+          warnings: p.warnings,
+          manufacturer: p.manufacturer,
+          rating: p.rating ? Number(p.rating) : 4.9,
+          reviewCount: p.reviewCount ?? 120,
+          createdAt: p.createdAt || new Date().toISOString(),
+          updatedAt: p.updatedAt || new Date().toISOString(),
+        }));
+
+        if (featuredOnly) list = list.filter((p) => p.isFeatured);
+        if (bestSellerOnly || isBestSeller) list = list.filter((p) => p.isBestSeller);
+        if (status) list = list.filter((p) => p.status === status);
+        if (categoryId && categoryId !== "ALL" && categoryId !== "all") {
+          list = list.filter((p) => p.categoryId === categoryId);
+        }
+        if (search && search.trim()) {
+          const q = search.trim().toLowerCase();
+          list = list.filter((p) => p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q));
+        }
+
+        return {
+          products: list.slice((page - 1) * limit, page * limit),
+          total: list.length,
+        };
+      }
+    } catch (fbErr) {
+      console.warn("Firestore getProducts fallback:", fbErr);
+    }
+
     const store = getLocalStore();
     let filtered = [...store.products];
 
@@ -2164,7 +2341,7 @@ export const dbService = {
           include: { category: true },
         });
 
-        return {
+        const createdProductData: ProductData = {
           id: p.id,
           title: p.title,
           description: p.description,
@@ -2179,6 +2356,7 @@ export const dbService = {
           backImageUrl: p.backImageUrl || undefined,
           textureImageUrl: p.textureImageUrl || undefined,
           lifestyleImageUrl: p.lifestyleImageUrl || undefined,
+          galleryImages: data.galleryImages || [p.imageUrl],
           categoryId: p.categoryId,
           categoryName: p.category?.name || "General",
           status: p.status as ProductStatus,
@@ -2193,6 +2371,14 @@ export const dbService = {
           createdAt: p.createdAt.toISOString(),
           updatedAt: p.updatedAt.toISOString(),
         };
+
+        // Dual-sync to Firestore and in-memory store
+        saveProductToFirestore(createdProductData as any).catch(() => {});
+        const store = getLocalStore();
+        store.products.unshift(createdProductData);
+        saveLocalStore(store);
+
+        return createdProductData;
       } catch (e) {
         console.warn("Prisma createProduct fallback:", e);
       }
@@ -2231,6 +2417,8 @@ export const dbService = {
       updatedAt: new Date().toISOString(),
     };
 
+    // Dual-sync to Firestore
+    saveProductToFirestore(newProduct as any).catch(() => {});
     store.products.unshift(newProduct);
     saveLocalStore(store);
     return newProduct;
@@ -2278,7 +2466,7 @@ export const dbService = {
           include: { category: true },
         });
 
-        return {
+        const updatedData: ProductData = {
           id: p.id,
           title: p.title,
           description: p.description,
@@ -2307,6 +2495,17 @@ export const dbService = {
           createdAt: p.createdAt.toISOString(),
           updatedAt: p.updatedAt.toISOString(),
         };
+
+        // Dual-sync to Firestore and in-memory store
+        saveProductToFirestore(updatedData as any).catch(() => {});
+        const store = getLocalStore();
+        const pIdx = store.products.findIndex((prod) => prod.id === id);
+        if (pIdx !== -1) {
+          store.products[pIdx] = { ...store.products[pIdx], ...updatedData };
+          saveLocalStore(store);
+        }
+
+        return updatedData;
       } catch (e) {
         console.warn("Prisma updateProduct fallback:", e);
       }
@@ -2335,6 +2534,7 @@ export const dbService = {
       updatedAt: new Date().toISOString(),
     };
 
+    saveProductToFirestore(updated as any).catch(() => {});
     store.products[idx] = updated;
     saveLocalStore(store);
     return updated;
@@ -2348,11 +2548,16 @@ export const dbService = {
     if (await checkPrisma()) {
       try {
         await prisma.product.delete({ where: { id } });
+        deleteProductFromFirestore(id).catch(() => {});
+        const store = getLocalStore();
+        store.products = store.products.filter((p) => p.id !== id);
+        saveLocalStore(store);
         return true;
       } catch (e) {
         console.warn("Prisma deleteProduct fallback:", e);
       }
     }
+    deleteProductFromFirestore(id).catch(() => {});
     const store = getLocalStore();
     const prevLen = store.products.length;
     store.products = store.products.filter((p) => p.id !== id);

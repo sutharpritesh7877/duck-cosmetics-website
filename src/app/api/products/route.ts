@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { dbService, ProductStatus } from "@/lib/db";
 import { productSchema, sanitizeText } from "@/lib/validation";
 
@@ -118,6 +119,16 @@ export async function POST(request: Request) {
       rating: rating ?? 4.9,
       reviewCount: reviewCount ?? 120,
     });
+
+    try {
+      revalidatePath("/");
+      revalidatePath("/shop");
+      revalidatePath("/best-sellers");
+      revalidatePath("/new-arrivals");
+      revalidatePath("/admin/products");
+    } catch (revalErr) {
+      console.warn("[Products POST] revalidatePath warning:", revalErr);
+    }
 
     return NextResponse.json({ success: true, product: newProduct }, { status: 201 });
   } catch (error: any) {

@@ -102,8 +102,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 3. Tertiary Provider: Local Filesystem Storage (Writable environments like local dev)
-      if (!uploadedUrl) {
+      // 3. Tertiary Provider: Local Filesystem Storage (ONLY in local development, NEVER in production/Vercel)
+      const isProductionOrVercel = Boolean(process.env.VERCEL || process.env.NODE_ENV === "production");
+      if (!uploadedUrl && !isProductionOrVercel) {
         try {
           const uploadsDir = path.join(process.cwd(), "public", "uploads");
           if (!fs.existsSync(uploadsDir)) {
@@ -121,11 +122,11 @@ export async function POST(req: NextRequest) {
           fs.writeFileSync(filePath, buffer);
           uploadedUrl = `/uploads/${fileName}`;
         } catch (localError) {
-          console.warn("[Upload API] Local filesystem write fallback skipped (e.g. read-only serverless):", localError);
+          console.warn("[Upload API] Local filesystem write fallback skipped:", localError);
         }
       }
 
-      // 4. Guaranteed Zero-Failure Fallback: Optimized Base64 Data URI
+      // 4. Guaranteed Zero-Failure Fallback: Optimized Base64 Data URI (Self-contained, Vercel-safe)
       if (!uploadedUrl) {
         uploadedUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
       }

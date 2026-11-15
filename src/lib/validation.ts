@@ -51,7 +51,7 @@ export const productSchema = z.object({
   lifestyleImageUrl: z.string().trim().optional().or(z.literal("")),
   galleryImages: z.array(z.string()).optional(),
   categoryId: z.string().min(1, "Category is required"),
-  status: z.enum(["DRAFT", "COMING_SOON", "LIVE"]),
+  status: z.enum(["DRAFT", "COMING_SOON", "LIVE"]).default("LIVE"),
   isFeatured: z.boolean().default(false),
   isBestSeller: z.boolean().default(false).optional(),
   ingredients: z.string().trim().optional(),
