@@ -27,35 +27,80 @@ export async function POST(req: NextRequest) {
 
     const uploadedUrls: string[] = [];
 
+    const cloudName = (
+      process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ||
+      process.env.VITE_CLOUDINARY_CLOUD_NAME ||
+      "fddgundt"
+    ).trim();
+
+    const uploadPreset = (
+      process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET ||
+      process.env.VITE_CLOUDINARY_UPLOAD_PRESET ||
+      "duck_unsigned_preset"
+    ).trim();
+
     for (const file of fileList) {
-      if (!file.type.startsWith("image/")) {
+      // Allow image MIME types or image file extensions
+      const isImage =
+        (file.type && file.type.startsWith("image/")) ||
+        /\.(jpg|jpeg|png|webp|gif|svg|avif|bmp|ico)$/i.test(file.name);
+
+      if (!isImage) {
         continue;
       }
 
       const bytes = await file.arrayBuffer();
       const buffer = Buffer.from(bytes);
+      const mimeType = file.type || "image/jpeg";
+      let uploadedUrl: string | null = null;
 
-      // Option A: Primary Cloud Upload to Firebase Storage
-      let uploadedToCloud = false;
-      if (isFirebaseConfigured()) {
+      // 1. Primary Cloud Provider: Cloudinary CDN (Instant, Unsigned, Permanent)
+      if (cloudName && uploadPreset) {
+        try {
+          const cldFormData = new FormData();
+          const fileBlob = new Blob([buffer], { type: mimeType });
+          cldFormData.append("file", fileBlob, file.name);
+          cldFormData.append("upload_preset", uploadPreset);
+          cldFormData.append("folder", "duck-cosmetics-products");
+
+          const cldRes = await fetch(
+            `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+            {
+              method: "POST",
+              body: cldFormData,
+            }
+          );
+
+          if (cldRes.ok) {
+            const cldData = await cldRes.json();
+            if (cldData.secure_url) {
+              uploadedUrl = cldData.secure_url;
+            }
+          }
+        } catch (cldErr) {
+          console.warn("[Upload API] Cloudinary upload attempt error:", cldErr);
+        }
+      }
+
+      // 2. Secondary Cloud Provider: Firebase Cloud Storage
+      if (!uploadedUrl && isFirebaseConfigured()) {
         try {
           const firebaseUrl = await uploadToFirebaseStorage(
             buffer,
             file.name,
-            file.type || "image/jpeg",
+            mimeType,
             "duck-cosmetics-assets"
           );
           if (firebaseUrl) {
-            uploadedUrls.push(firebaseUrl);
-            uploadedToCloud = true;
+            uploadedUrl = firebaseUrl;
           }
         } catch (fbError) {
-          console.warn("[Upload API] Firebase Storage upload error, falling back to local:", fbError);
+          console.warn("[Upload API] Firebase Storage fallback attempt error:", fbError);
         }
       }
 
-      // Option B: Fallback to local server filesystem (for offline / local testing)
-      if (!uploadedToCloud) {
+      // 3. Tertiary Provider: Local Filesystem Storage (Writable environments like local dev)
+      if (!uploadedUrl) {
         try {
           const uploadsDir = path.join(process.cwd(), "public", "uploads");
           if (!fs.existsSync(uploadsDir)) {
@@ -71,29 +116,47 @@ export async function POST(req: NextRequest) {
           const filePath = path.join(uploadsDir, fileName);
 
           fs.writeFileSync(filePath, buffer);
-          uploadedUrls.push(`/uploads/${fileName}`);
+          uploadedUrl = `/uploads/${fileName}`;
         } catch (localError) {
-          console.error("[Upload API] Local write fallback error:", localError);
+          console.warn("[Upload API] Local filesystem write fallback skipped (e.g. read-only serverless):", localError);
         }
+      }
+
+      // 4. Guaranteed Zero-Failure Fallback: Optimized Base64 Data URI
+      if (!uploadedUrl) {
+        uploadedUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
+      }
+
+      if (uploadedUrl) {
+        uploadedUrls.push(uploadedUrl);
       }
     }
 
     if (uploadedUrls.length === 0) {
       return NextResponse.json(
-        { success: false, error: "Invalid file format or upload failed. Please upload valid image files (JPG, PNG, WebP)." },
+        { success: false, error: "Please select valid image files (JPG, PNG, WebP) to upload." },
         { status: 400 }
       );
     }
 
+    const primaryUrl = uploadedUrls[0];
+    const provider = primaryUrl.includes("cloudinary.com")
+      ? "cloudinary"
+      : primaryUrl.includes("firebasestorage")
+      ? "firebase"
+      : primaryUrl.startsWith("data:")
+      ? "inline-data"
+      : "local";
+
     return NextResponse.json({
       success: true,
-      url: uploadedUrls[0],
+      url: primaryUrl,
       urls: uploadedUrls,
       count: uploadedUrls.length,
-      storageProvider: uploadedUrls[0].includes("firebasestorage") ? "firebase" : "local",
+      storageProvider: provider,
     });
   } catch (error: any) {
-    console.error("Upload error:", error);
+    console.error("Upload handler error:", error);
     return NextResponse.json(
       { success: false, error: error?.message || "File upload failed on server." },
       { status: 500 }
