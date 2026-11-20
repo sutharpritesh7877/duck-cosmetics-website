@@ -278,9 +278,9 @@ export function ProductGrid({
                           )}
                         </div>
                       ) : (
-                        /* COMING SOON: NO PRICES SHOWN (Price TBA) */
-                        <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-primary bg-white/80 border border-lilac-border px-2.5 py-0.5 rounded-md">
-                          Price TBA · Pre-Release
+                        /* COMING SOON: NO PRICES SHOWN */
+                        <span className="inline-block text-[11px] font-bold uppercase tracking-wider text-primary bg-lilac/40 border border-lilac-border px-2.5 py-1 rounded-md">
+                          Coming Soon
                         </span>
                       )}
                     </div>

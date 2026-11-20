@@ -266,17 +266,25 @@ export function ProductDetailClient({
 
           {/* Pricing & Value */}
           <div className="flex items-baseline gap-3 pt-1 pb-2">
-            <span className="font-serif text-3xl font-bold text-primary">
-              {formatPrice(sellingPrice)}
-            </span>
-            {mrp > sellingPrice && (
-              <span className="text-sm font-sans text-text-muted line-through">
-                {formatPrice(mrp)}
+            {isLive ? (
+              <>
+                <span className="font-serif text-3xl font-bold text-primary">
+                  {formatPrice(sellingPrice)}
+                </span>
+                {mrp > sellingPrice && (
+                  <span className="text-sm font-sans text-text-muted line-through">
+                    {formatPrice(mrp)}
+                  </span>
+                )}
+                <span className="text-[11px] text-text-muted">
+                  (Includes all domestic taxes · Free shipping over ₹800)
+                </span>
+              </>
+            ) : (
+              <span className="inline-block text-base font-bold uppercase tracking-wider text-primary bg-lilac/40 border border-lilac-border px-4 py-2 rounded-xl">
+                Coming Soon
               </span>
             )}
-            <span className="text-[11px] text-text-muted">
-              (Includes all domestic taxes · Free shipping over ₹800)
-            </span>
           </div>
 
           {/* Sensorial Description */}

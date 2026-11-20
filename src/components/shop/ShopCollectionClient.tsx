@@ -432,11 +432,11 @@ export function ShopCollectionClient({
                           </div>
                         ) : (
                           <div className="flex flex-col">
-                            <span className="font-serif text-xs font-semibold text-primary uppercase tracking-wider">
-                              Price TBA · Pre-Release
+                            <span className="font-serif text-sm font-bold text-primary uppercase tracking-wider">
+                              Coming Soon
                             </span>
                             <span className="font-sans text-[10px] text-text-muted">
-                              Complimentary Global VIP Shipping
+                              Pre-Launch Drop · VIP Access
                             </span>
                           </div>
                         )}
