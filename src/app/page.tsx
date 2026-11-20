@@ -8,7 +8,7 @@ export const revalidate = 0;
 export default async function HomePage() {
   const [settings, productsResult, contact] = await Promise.all([
     dbService.getSiteSettings(),
-    dbService.getProducts({ limit: 40 }),
+    dbService.getProducts({ limit: 100 }),
     dbService.getContactSettings(),
   ]);
 

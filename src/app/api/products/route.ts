@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     const sort = (searchParams.get("sort") as any) || undefined;
     const search = searchParams.get("search") || undefined;
     const page = parseInt(searchParams.get("page") || "1", 10);
-    const limit = parseInt(searchParams.get("limit") || "50", 10);
+    const limit = parseInt(searchParams.get("limit") || "100", 10);
 
     const result = await dbService.getProducts({
       featuredOnly,
